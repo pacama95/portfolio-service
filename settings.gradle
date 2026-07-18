@@ -1,0 +1,19 @@
+pluginManagement {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    plugins {
+        id 'io.quarkus' version "${quarkusPlatformVersion}"
+    }
+}
+
+rootProject.name = 'portfolio-service'
+
+gradle.beforeProject { project ->
+    project.ext.mapstructVersion = '1.6.3'
+    project.ext.mockitoVersion = '5.+'
+    project.ext.testcontainersVersion = '1.21.3'
+    project.ext.dbRiderVersion = '1.44.0'
+    project.ext.wiremockVersion = '3.9.1'
+}

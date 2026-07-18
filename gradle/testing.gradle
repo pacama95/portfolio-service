@@ -1,0 +1,154 @@
+processTestResources {
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
+
+def jacocoExcludes = [
+        '**/dto/**',
+        '**/entity/**',
+        '**/ports/**',
+        '**/model/**',
+        '**/PortfolioApplication*',
+        '**/client/**',
+        // Panache session adapters: covered by DBRider integration tests, not isolatable in unit tests
+        '**/persistence/adapter/**',
+        '**/persistence/repository/**',
+]
+
+test {
+    systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+    finalizedBy jacocoTestReport
+}
+
+jacoco {
+    toolVersion = '0.8.12'
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: jacocoExcludes)
+        }))
+    }
+}
+
+jacocoTestCoverageVerification {
+    dependsOn jacocoTestReport
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.90
+            }
+            limit {
+                counter = 'BRANCH'
+                value = 'COVEREDRATIO'
+                minimum = 0.90
+            }
+        }
+    }
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: jacocoExcludes)
+        }))
+    }
+}
+
+check.dependsOn jacocoTestCoverageVerification
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs integration tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+    mustRunAfter jacocoTestCoverageVerification
+}
+
+def summarizeTests = { File resultsDirectory ->
+    def resultFiles = fileTree(resultsDirectory) {
+        include 'TEST-*.xml'
+    }.files
+
+    if (resultFiles.empty) {
+        return 'NOT RUN'
+    }
+
+    def totals = [tests: 0, failures: 0, errors: 0, skipped: 0]
+    resultFiles.each { resultFile ->
+        def suite = new groovy.xml.XmlSlurper().parse(resultFile)
+        totals.keySet().each { key ->
+            totals[key] += (suite.attributes()[key.toString()] ?: '0').toString().toInteger()
+        }
+    }
+
+    def failed = totals.failures + totals.errors
+    def status = failed == 0 ? 'PASSED' : 'FAILED'
+    "${status} - ${totals.tests} tests, ${failed} failed, ${totals.skipped} skipped"
+}
+
+def summarizeCoverage = {
+    def reportFile = layout.buildDirectory.file('reports/jacoco/test/jacocoTestReport.xml').get().asFile
+    if (!reportFile.exists()) {
+        return 'NOT RUN'
+    }
+
+    def reportXml = reportFile.text
+    def percentage = { String type ->
+        def matcher = java.util.regex.Pattern
+                .compile("<counter type=\"${type}\" missed=\"(\\d+)\" covered=\"(\\d+)\"/>")
+                .matcher(reportXml)
+        def counter = null
+        while (matcher.find()) {
+            // The final counter of each type is the report-wide total.
+            counter = [missed: matcher.group(1).toBigDecimal(), covered: matcher.group(2).toBigDecimal()]
+        }
+        if (counter == null) {
+            return 'n/a'
+        }
+        def total = counter.covered + counter.missed
+        total == 0 ? 'n/a' : String.format(Locale.ROOT, '%.1f%%', counter.covered * 100 / total)
+    }
+    def verificationTask = tasks.named('jacocoTestCoverageVerification').get()
+    def status = verificationTask.state.failure == null ? 'PASSED' : 'FAILED'
+
+    "${status} - line ${percentage('LINE')}, branch ${percentage('BRANCH')} (minimum 90.0%)"
+}
+
+def buildSummary = tasks.register('buildSummary') {
+    description = 'Prints and writes the unit test, coverage, integration test, and build results.'
+    group = 'verification'
+    outputs.file(layout.buildDirectory.file('reports/build-summary.txt'))
+    outputs.upToDateWhen { false }
+
+    doLast {
+        def failedTasks = gradle.taskGraph.allTasks.findAll { it.state.failure != null }
+        def buildStatus = failedTasks.empty ? 'PASSED' : 'FAILED'
+        def summary = """
+========================================
+BUILD SUMMARY
+========================================
+Build:             ${buildStatus}
+Unit tests:        ${summarizeTests(layout.buildDirectory.dir('test-results/test').get().asFile)}
+JaCoCo coverage:   ${summarizeCoverage()}
+Integration tests: ${summarizeTests(layout.buildDirectory.dir('test-results/integrationTest').get().asFile)}
+========================================
+""".stripIndent().trim()
+
+        def summaryFile = layout.buildDirectory.file('reports/build-summary.txt').get().asFile
+        summaryFile.parentFile.mkdirs()
+        summaryFile.text = summary + System.lineSeparator()
+        logger.lifecycle(System.lineSeparator() + summary)
+    }
+}
+
+tasks.named('build') {
+    dependsOn integrationTest
+    finalizedBy buildSummary
+}

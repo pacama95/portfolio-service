@@ -1,0 +1,60 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+bin/
+out/
+
+# Quarkus
+.quarkus/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+credentials.json
+
+# Logs and local dumps
+*.log
+logs/
+hs_err_pid*
+replay_pid*
+
+# Test / coverage artifacts outside build/
+jacoco.exec
+*.hprof
+
+# Native / packaging
+*-runner
+*-runner.jar
+target/
+*.native
+*.so
+*.dylib
+*.dll
+
+# Python helpers (local Postman generation venv, caches)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
