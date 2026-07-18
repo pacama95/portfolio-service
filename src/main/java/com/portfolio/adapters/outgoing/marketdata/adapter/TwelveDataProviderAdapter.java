@@ -5,6 +5,7 @@ import com.portfolio.adapters.outgoing.marketdata.client.TwelveDataClient;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.FxRateEntry;
 import com.portfolio.core.model.PriceHistoryEntry;
+import com.portfolio.core.ports.outgoing.MarketDataProviderError;
 import com.portfolio.core.ports.outgoing.MarketDataProviderPort;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -38,11 +39,11 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
         LOG.infof("Twelve Data fetchSpotPrice symbol=%s", symbol);
         return client.price(symbol, apiKey)
                 .map(node -> {
-                    warnIfProviderError(node, symbol);
+                    failIfProviderError(node, symbol);
                     JsonNode price = node.get("price");
                     if (price == null || price.isNull()) {
                         LOG.errorf("Twelve Data missing price field symbol=%s", symbol);
-                        throw new IllegalStateException("No price for symbol " + symbol);
+                        throw new MarketDataProviderError.MissingData(symbol, "price");
                     }
                     return new BigDecimal(price.asText());
                 });
@@ -54,11 +55,11 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
         LOG.infof("Twelve Data fetchFxRate symbol=%s", symbol);
         return client.exchangeRate(symbol, apiKey)
                 .map(node -> {
-                    warnIfProviderError(node, symbol);
+                    failIfProviderError(node, symbol);
                     JsonNode rate = node.get("rate");
                     if (rate == null || rate.isNull()) {
                         LOG.errorf("Twelve Data missing rate field symbol=%s", symbol);
-                        throw new IllegalStateException("No FX rate for " + symbol);
+                        throw new MarketDataProviderError.MissingData(symbol, "rate");
                     }
                     return new BigDecimal(rate.asText());
                 });
@@ -69,7 +70,7 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
         LOG.infof("Twelve Data fetchPriceHistory symbol=%s from=%s to=%s", symbol, from, to);
         return client.timeSeries(symbol, "1day", from.toString(), to.toString(), apiKey)
                 .map(node -> {
-                    warnIfProviderError(node, symbol);
+                    failIfProviderError(node, symbol);
                     List<PriceHistoryEntry> entries = parsePriceSeries(symbol, node);
                     if (entries.isEmpty()) {
                         LOG.warnf("Twelve Data returned empty price series symbol=%s from=%s to=%s",
@@ -85,7 +86,7 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
         LOG.infof("Twelve Data fetchFxHistory symbol=%s from=%s to=%s", symbol, from, to);
         return client.timeSeries(symbol, "1day", from.toString(), to.toString(), apiKey)
                 .map(node -> {
-                    warnIfProviderError(node, symbol);
+                    failIfProviderError(node, symbol);
                     List<FxRateEntry> entries = parseFxSeries(base, quote, node);
                     if (entries.isEmpty()) {
                         LOG.warnf("Twelve Data returned empty FX series symbol=%s from=%s to=%s",
@@ -95,10 +96,17 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
                 });
     }
 
-    private void warnIfProviderError(JsonNode node, String symbol) {
+    /**
+     * Twelve Data returns HTTP 200 with {@code status=error} for rate limits, invalid symbols,
+     * etc. Must throw rather than warn-and-continue: an error response parses to zero entries,
+     * indistinguishable from a legitimate empty range (holiday/weekend), and the caller
+     * (MarketDataService) would otherwise cache the error as "confirmed no data" forever.
+     */
+    private void failIfProviderError(JsonNode node, String symbol) {
         if (node != null && node.hasNonNull("status") && "error".equalsIgnoreCase(node.get("status").asText())) {
             String message = node.hasNonNull("message") ? node.get("message").asText() : "unknown";
             LOG.warnf("Twelve Data error response symbol=%s message=%s", symbol, message);
+            throw new MarketDataProviderError.ErrorResponse(symbol, message);
         }
     }
 

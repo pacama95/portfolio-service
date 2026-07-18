@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -261,6 +262,76 @@ class MarketDataServiceTest {
 
         assertEquals(2, result.size());
         verify(provider).fetchPriceHistory("AAPL", from, to);
+    }
+
+    @Test
+    void givenFutureToDate_whenGetPriceHistory_thenClampsToToday() {
+        LocalDate from = LocalDate.now().minusDays(1);
+        LocalDate today = LocalDate.now();
+        LocalDate futureTo = today.plusDays(30);
+        when(store.findPrices("AAPL", from, today)).thenReturn(Uni.createFrom().item(List.of()));
+        when(store.hasCoverage("PRICE", "AAPL", from, today)).thenReturn(Uni.createFrom().item(false));
+        when(provider.fetchPriceHistory(eq("AAPL"), any(), any())).thenReturn(Uni.createFrom().item(List.of(
+                new PriceHistoryEntry("AAPL", from, new BigDecimal("100"), null, Currency.USD, OffsetDateTime.now())
+        )));
+        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
+
+        service.getPriceHistory("AAPL", from, futureTo).await().indefinitely();
+
+        verify(store, never()).findPrices("AAPL", from, futureTo);
+        verify(store, times(2)).findPrices("AAPL", from, today);
+        verify(provider, never()).fetchPriceHistory(eq("AAPL"), any(), eq(futureTo));
+    }
+
+    @Test
+    void givenToIsToday_whenGetPriceHistory_thenNeverRecordsCoverageForToday() {
+        LocalDate today = LocalDate.now();
+        when(store.findPrices("AAPL", today, today)).thenReturn(Uni.createFrom().item(List.of()));
+        when(store.hasCoverage("PRICE", "AAPL", today, today)).thenReturn(Uni.createFrom().item(false));
+        when(provider.fetchPriceHistory("AAPL", today, today)).thenReturn(Uni.createFrom().item(List.of()));
+        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+
+        service.getPriceHistory("AAPL", today, today).await().indefinitely();
+
+        verify(store, never()).recordCoverage(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void givenRangeEndingYesterday_whenGetPriceHistory_thenRecordsCoverageUpToRequestedTo() {
+        LocalDate from = LocalDate.now().minusDays(5);
+        LocalDate to = LocalDate.now().minusDays(1);
+        when(store.findPrices("AAPL", from, to)).thenReturn(Uni.createFrom().item(List.of()));
+        when(store.hasCoverage("PRICE", "AAPL", from, to)).thenReturn(Uni.createFrom().item(false));
+        when(provider.fetchPriceHistory(eq("AAPL"), any(), any())).thenReturn(Uni.createFrom().item(List.of(
+                new PriceHistoryEntry("AAPL", from, new BigDecimal("100"), null, Currency.USD, OffsetDateTime.now())
+        )));
+        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
+
+        service.getPriceHistory("AAPL", from, to).await().indefinitely();
+
+        verify(store).recordCoverage("PRICE", "AAPL", from, to, "twelvedata");
+    }
+
+    @Test
+    void givenFutureToDate_whenGetFxHistory_thenClampsToToday() {
+        LocalDate from = LocalDate.now().minusDays(1);
+        LocalDate today = LocalDate.now();
+        LocalDate futureTo = today.plusDays(30);
+        when(store.findFxRates(Currency.EUR, Currency.USD, from, today)).thenReturn(Uni.createFrom().item(List.of()));
+        when(store.hasCoverage("FX", "EUR/USD", from, today)).thenReturn(Uni.createFrom().item(false));
+        when(provider.fetchFxHistory(eq(Currency.EUR), eq(Currency.USD), any(), any()))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new FxRateEntry(Currency.EUR, Currency.USD, from, new BigDecimal("1.1"), OffsetDateTime.now())
+                )));
+        when(store.upsertFxRates(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
+
+        service.getFxHistory(Currency.EUR, Currency.USD, from, futureTo).await().indefinitely();
+
+        verify(store, never()).findFxRates(Currency.EUR, Currency.USD, from, futureTo);
+        verify(store, times(2)).findFxRates(Currency.EUR, Currency.USD, from, today);
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.portfolio.adapters.outgoing.marketdata.client.TwelveDataClient;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.FxRateEntry;
 import com.portfolio.core.model.PriceHistoryEntry;
+import com.portfolio.core.ports.outgoing.MarketDataProviderError;
 import io.smallrye.mutiny.Uni;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +49,16 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{\"price\":null}");
         when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(IllegalStateException.class,
+        assertThrows(MarketDataProviderError.MissingData.class,
+                () -> adapter.fetchSpotPrice("AAPL").await().indefinitely());
+    }
+
+    @Test
+    void givenErrorStatusResponse_whenFetchSpotPrice_thenThrows() throws Exception {
+        JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
+        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
+
+        assertThrows(MarketDataProviderError.ErrorResponse.class,
                 () -> adapter.fetchSpotPrice("AAPL").await().indefinitely());
     }
 
@@ -67,7 +77,16 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{}");
         when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(IllegalStateException.class,
+        assertThrows(MarketDataProviderError.MissingData.class,
+                () -> adapter.fetchFxRate(Currency.EUR, Currency.USD).await().indefinitely());
+    }
+
+    @Test
+    void givenErrorStatusResponse_whenFetchFxRate_thenThrows() throws Exception {
+        JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
+        when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
+
+        assertThrows(MarketDataProviderError.ErrorResponse.class,
                 () -> adapter.fetchFxRate(Currency.EUR, Currency.USD).await().indefinitely());
     }
 
@@ -101,7 +120,7 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{}");
         when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(IllegalStateException.class,
+        assertThrows(MarketDataProviderError.MissingData.class,
                 () -> adapter.fetchSpotPrice("AAPL").await().indefinitely());
     }
 
@@ -110,8 +129,32 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{\"rate\":null}");
         when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(IllegalStateException.class,
+        assertThrows(MarketDataProviderError.MissingData.class,
                 () -> adapter.fetchFxRate(Currency.EUR, Currency.USD).await().indefinitely());
+    }
+
+    @Test
+    void givenErrorStatusResponse_whenFetchPriceHistory_thenThrows() throws Exception {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        LocalDate to = LocalDate.of(2024, 1, 1);
+        JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
+        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
+                .thenReturn(Uni.createFrom().item(node));
+
+        assertThrows(MarketDataProviderError.ErrorResponse.class,
+                () -> adapter.fetchPriceHistory("AAPL", from, to).await().indefinitely());
+    }
+
+    @Test
+    void givenErrorStatusResponse_whenFetchFxHistory_thenThrows() throws Exception {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        LocalDate to = LocalDate.of(2024, 1, 1);
+        JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
+        when(client.timeSeries("EUR/USD", "1day", from.toString(), to.toString(), API_KEY))
+                .thenReturn(Uni.createFrom().item(node));
+
+        assertThrows(MarketDataProviderError.ErrorResponse.class,
+                () -> adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to).await().indefinitely());
     }
 
     @Test

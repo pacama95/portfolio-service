@@ -109,24 +109,25 @@ public class MarketDataService implements MarketDataPort {
     @Override
     public Uni<List<PriceHistoryEntry>> getPriceHistory(String symbol, LocalDate from, LocalDate to) {
         String normalized = symbol.trim().toUpperCase();
-        return store.findPrices(normalized, from, to)
+        LocalDate effectiveTo = clampToToday(to);
+        return store.findPrices(normalized, from, effectiveTo)
                 .flatMap(stored -> {
                     Set<LocalDate> present = stored.stream()
                             .map(PriceHistoryEntry::priceDate)
                             .collect(Collectors.toCollection(HashSet::new));
-                    List<LocalDate> missing = datesBetween(from, to).stream()
+                    List<LocalDate> missing = datesBetween(from, effectiveTo).stream()
                             .filter(date -> !present.contains(date))
                             .toList();
                     if (missing.isEmpty()) {
-                        LOG.infof("Price history fully cached symbol=%s from=%s to=%s", normalized, from, to);
+                        LOG.infof("Price history fully cached symbol=%s from=%s to=%s", normalized, from, effectiveTo);
                         return Uni.createFrom().item(stored);
                     }
-                    return store.hasCoverage("PRICE", normalized, from, to)
+                    return store.hasCoverage("PRICE", normalized, from, effectiveTo)
                             .flatMap(covered -> {
                                 if (Boolean.TRUE.equals(covered)) {
                                     LOG.infof(
                                             "Price history covered without provider fetch symbol=%s from=%s to=%s",
-                                            normalized, from, to);
+                                            normalized, from, effectiveTo);
                                     return Uni.createFrom().item(stored);
                                 }
                                 LocalDate fetchFrom = missing.getFirst();
@@ -135,12 +136,19 @@ public class MarketDataService implements MarketDataPort {
                                         "Fetching price history from provider symbol=%s from=%s to=%s",
                                         normalized, fetchFrom, fetchTo);
                                 return provider.fetchPriceHistory(normalized, fetchFrom, fetchTo)
-                                        .flatMap(fetched -> store.upsertPrices(fetched)
-                                                .chain(() -> store.recordCoverage(
-                                                        "PRICE", normalized, from, to, "twelvedata"))
-                                                .chain(() -> store.findPrices(normalized, from, to)));
+                                        .flatMap(fetched -> persistPriceFetch(normalized, from, effectiveTo, fetched));
                             });
                 });
+    }
+
+    private Uni<List<PriceHistoryEntry>> persistPriceFetch(
+            String symbol, LocalDate from, LocalDate effectiveTo, List<PriceHistoryEntry> fetched) {
+        Uni<Void> persisted = store.upsertPrices(fetched);
+        LocalDate coverageTo = coverageUpperBound(effectiveTo);
+        if (!coverageTo.isBefore(from)) {
+            persisted = persisted.chain(() -> store.recordCoverage("PRICE", symbol, from, coverageTo, "twelvedata"));
+        }
+        return persisted.chain(() -> store.findPrices(symbol, from, effectiveTo));
     }
 
     @Override
@@ -152,36 +160,46 @@ public class MarketDataService implements MarketDataPort {
             return Uni.createFrom().item(identity);
         }
         String symbol = fxSymbol(base, quote);
-        return store.findFxRates(base, quote, from, to)
+        LocalDate effectiveTo = clampToToday(to);
+        return store.findFxRates(base, quote, from, effectiveTo)
                 .flatMap(stored -> {
                     Set<LocalDate> present = stored.stream()
                             .map(FxRateEntry::rateDate)
                             .collect(Collectors.toCollection(HashSet::new));
-                    List<LocalDate> missing = datesBetween(from, to).stream()
+                    List<LocalDate> missing = datesBetween(from, effectiveTo).stream()
                             .filter(date -> !present.contains(date))
                             .toList();
                     if (missing.isEmpty()) {
-                        LOG.infof("FX history fully cached symbol=%s from=%s to=%s", symbol, from, to);
+                        LOG.infof("FX history fully cached symbol=%s from=%s to=%s", symbol, from, effectiveTo);
                         return Uni.createFrom().item(stored);
                     }
-                    return store.hasCoverage("FX", symbol, from, to)
+                    return store.hasCoverage("FX", symbol, from, effectiveTo)
                             .flatMap(covered -> {
                                 if (Boolean.TRUE.equals(covered)) {
                                     LOG.infof(
                                             "FX history covered without provider fetch symbol=%s from=%s to=%s",
-                                            symbol, from, to);
+                                            symbol, from, effectiveTo);
                                     return Uni.createFrom().item(stored);
                                 }
                                 LOG.infof(
                                         "Fetching FX history from provider symbol=%s from=%s to=%s",
                                         symbol, missing.getFirst(), missing.getLast());
                                 return provider.fetchFxHistory(base, quote, missing.getFirst(), missing.getLast())
-                                        .flatMap(fetched -> store.upsertFxRates(fetched)
-                                                .chain(() -> store.recordCoverage(
-                                                        "FX", symbol, from, to, "twelvedata"))
-                                                .chain(() -> store.findFxRates(base, quote, from, to)));
+                                        .flatMap(fetched -> persistFxFetch(
+                                                base, quote, symbol, from, effectiveTo, fetched));
                             });
                 });
+    }
+
+    private Uni<List<FxRateEntry>> persistFxFetch(
+            Currency base, Currency quote, String symbol, LocalDate from, LocalDate effectiveTo,
+            List<FxRateEntry> fetched) {
+        Uni<Void> persisted = store.upsertFxRates(fetched);
+        LocalDate coverageTo = coverageUpperBound(effectiveTo);
+        if (!coverageTo.isBefore(from)) {
+            persisted = persisted.chain(() -> store.recordCoverage("FX", symbol, from, coverageTo, "twelvedata"));
+        }
+        return persisted.chain(() -> store.findFxRates(base, quote, from, effectiveTo));
     }
 
     @Override
@@ -202,6 +220,16 @@ public class MarketDataService implements MarketDataPort {
 
     private static boolean isFresh(OffsetDateTime asOf, Duration freshness) {
         return asOf != null && asOf.isAfter(OffsetDateTime.now().minus(freshness));
+    }
+
+    private static LocalDate clampToToday(LocalDate date) {
+        LocalDate today = LocalDate.now();
+        return date.isAfter(today) ? today : date;
+    }
+
+    private static LocalDate coverageUpperBound(LocalDate requestedTo) {
+        LocalDate yesterday = LocalDate.now().minusDays(1);
+        return requestedTo.isAfter(yesterday) ? yesterday : requestedTo;
     }
 
     private static String fxSymbol(Currency base, Currency quote) {
