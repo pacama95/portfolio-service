@@ -1,0 +1,80 @@
+---
+description: Model outcomes per hexagonal layer with two sealed interfaces — Result for expected business outcomes, Error for exceptional failures that must trigger rollback
+globs: "**/*.java"
+alwaysApply: false
+---
+
+# Sealed Results & Errors per Layer
+
+Every layer of the hexagon (incoming ports/use cases, outgoing ports, adapters) models its outcomes with **two distinct sealed interfaces**:
+
+1. **`Result`** — expected business outcomes, **including business errors** (not-found, duplicate, validation rejection). These travel as **values** in the `Uni` item. They are part of the normal flow and must **not** abort transactions.
+2. **`Error`** — exceptional failures (infrastructure broken, invariant violated, corrupt state) that must **fail the `Uni`** as an **exception**, so Mutiny and `@Transactional`/reactive transaction handling can intercept them and **roll back**.
+
+## Result — sealed interface of expected outcomes
+
+Declared nested in the port interface, returned as the `Uni` item:
+
+```java
+public interface ProcessTransactionCreatedUseCase {
+
+    Uni<Result> execute(Command command);
+
+    sealed interface Result {
+        record Success(Position position) implements Result {}
+        record DuplicateTransaction(UUID transactionId) implements Result {}   // business error, still a Result
+        record Ignored(String reason) implements Result {}
+    }
+
+    record Command(UUID transactionId, String ticker, BigDecimal quantity) {}
+}
+```
+
+- Business rejections are `Result` variants, never exceptions — throwing them would incorrectly roll back work that should be committed (e.g. recording that an event was ignored).
+- Consume results with an exhaustive `switch` in `onItem().transform(...)`:
+
+```java
+useCase.execute(command)
+    .onItem().transform(result -> switch (result) {
+        case Result.Success success -> Response.ok(mapper.toDto(success.position())).build();
+        case Result.DuplicateTransaction dup -> Response.status(Response.Status.CONFLICT).build();
+        case Result.Ignored ignored -> Response.noContent().build();
+    });
+```
+
+## Error — sealed exception hierarchy for rollback-worthy failures
+
+Each layer defines its errors as a **sealed hierarchy extending `RuntimeException`**, so they propagate as `Uni` failures that transaction management intercepts and rolls back:
+
+```java
+public sealed interface PositionPersistenceError {
+
+    sealed abstract class PersistenceException extends RuntimeException implements PositionPersistenceError {
+        protected PersistenceException(String message, Throwable cause) { super(message, cause); }
+    }
+
+    final class ConnectionFailure extends PersistenceException {
+        public ConnectionFailure(Throwable cause) { super("Database unreachable", cause); }
+    }
+
+    final class OptimisticLockConflict extends PersistenceException {
+        public OptimisticLockConflict(String message) { super(message, null); }
+    }
+}
+```
+
+- These flow through Mutiny's failure channel — never wrap them into a `Result`. Inside a transactional pipeline, a failed `Uni` triggers rollback automatically.
+- Because the hierarchy is sealed, `.onFailure(Type.class)` and `switch` over failures stay exhaustive and translation between layers is explicit:
+
+```java
+repository.save(position)
+    .onFailure(PositionPersistenceError.OptimisticLockConflict.class)
+    .transform(failure -> new UseCaseError.ConcurrentModification(command.transactionId(), failure));
+```
+
+## Boundary Rules
+
+- Adapters translate raw infrastructure exceptions (SQL, HTTP, Redis, SQS) into the port's sealed `Error` types; raw driver exceptions never cross a port boundary.
+- Each layer catches the lower layer's `Error` types and either translates them into its own `Error` (rollback continues to propagate) or — when the failure is actually an expected business case at this level — converts them into a `Result` variant.
+- The outermost incoming adapter (controller, consumer) maps `Result` variants to responses/acks and `Error` failures to 5xx responses / retries / DLQ, after the rollback has already happened.
+- No fallthrough `default` branches when switching over sealed `Result` or `Error` types — let the compiler enforce exhaustiveness when new variants are added.

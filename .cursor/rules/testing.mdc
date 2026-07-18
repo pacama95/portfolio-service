@@ -1,0 +1,54 @@
+---
+description: Unit and integration testing conventions — source sets, Mockito, DBRider, programmatic WireMock
+globs: "**/src/test/**/*.java,**/src/integrationTest/**/*.java"
+alwaysApply: false
+---
+
+# Testing Conventions
+
+Every production class gets a unit test. Every externally observable flow (REST endpoint, event consumer, scheduled job) gets an integration test. Unit tests live in `src/test/java`; integration tests live in `src/integrationTest/java` under a dedicated integration package.
+
+## Unit Tests
+
+- One test class per production class. Test use cases, services, mappers, and adapters in isolation.
+- **Mockito in code, no annotations**: create mocks with `Mockito.mock(...)` and instantiate the class under test explicitly in `@BeforeEach` or the test. Do not use `@Mock`, `@InjectMocks`, or `@ExtendWith(MockitoExtension.class)`.
+
+```java
+class ProcessTransactionCreatedServiceTest {
+
+    private final PositionRepository positionRepository = Mockito.mock(PositionRepository.class);
+    private final ProcessTransactionCreatedService service =
+            new ProcessTransactionCreatedService(positionRepository);
+}
+```
+
+- Assert on the sealed `Result` variants (e.g. `assertInstanceOf(Result.Success.class, result)`), not on side effects alone.
+- Mutiny results: unwrap with `.await().indefinitely()` or `UniAssertSubscriber` — never block with raw threads or sleeps.
+- MapStruct mappers are tested with the generated implementation (`Mappers.getMapper(...)` or `new XxxMapperImpl()`), not mocks.
+
+## Integration Tests
+
+- Use `@QuarkusTest` with real wiring; hit the service through its real boundary (REST via RestAssured, events via the actual consumer).
+- **Database state with DBRider**: `@DBRider` with `@DataSet` for the given-state and `@ExpectedDataSet` for verification. Datasets live in `src/integrationTest/resources/datasets`.
+- **External HTTP with programmatic WireMock**: no annotations, no auto-injection. Start and configure `WireMockServer` in code via a `QuarkusTestResourceLifecycleManager`, and register stubs per test with `stubFor(...)`:
+
+```java
+public class WireMockResource implements QuarkusTestResourceLifecycleManager {
+    private WireMockServer server;
+
+    @Override
+    public Map<String, String> start() {
+        server = new WireMockServer(wireMockConfig().dynamicPort());
+        server.start();
+        return Map.of("quarkus.rest-client.market-data.url", server.baseUrl());
+    }
+
+    @Override
+    public void stop() {
+        server.stop();
+    }
+}
+```
+
+- Use Testcontainers (PostgreSQL, Redis, LocalStack for SQS) for infrastructure; never depend on locally running services.
+- Integration tests must be independent and repeatable: each test declares its own dataset and stubs, and cleans up via DBRider cleanup strategies.

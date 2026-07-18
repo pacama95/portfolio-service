@@ -1,0 +1,18 @@
+---
+description: Test-first workflow for Java and Quarkus feature implementation
+alwaysApply: true
+---
+
+# Test-Driven Development
+
+For feature work and bug fixes, follow TDD whenever practical:
+
+1. Derive unit and integration test cases from the specification before changing production code.
+2. Cover the happy path, expected errors, and relevant edge cases.
+3. Implement the tests first and run them to confirm they fail for the expected reason (red).
+4. Add the minimum production code needed to satisfy the specification.
+5. Run unit and integration tests until they pass (green), then refactor without breaking them.
+
+Name unit test methods `given..._when..._then...` (for example, `givenValidRequest_whenProcessing_thenReturnsSuccess`). Follow all test structure, tooling, and isolation conventions defined in the **testing** rule (`testing.mdc`).
+
+Do not weaken, remove, or bypass a valid failing test to make the suite pass. If test-first development is impractical, state why and still add the required coverage.

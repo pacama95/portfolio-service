@@ -1,0 +1,25 @@
+---
+description: Gradle convention for Quarkus unit tests, JaCoCo verification, integration tests, and build summaries
+globs: "**/*.gradle"
+alwaysApply: false
+---
+
+# Gradle Testing Convention
+
+- Keep plugins, dependencies, repositories, project metadata, Java settings, and packaging in `build.gradle`.
+- Put test tasks, JaCoCo configuration, coverage verification, and build-summary logic in `gradle/testing.gradle`; apply it from `build.gradle`.
+- Use Quarkus's existing `sourceSets.integrationTest`. Do not merge `src/integrationTest` into `sourceSets.test`.
+- Register `integrationTest` as a `Test` task using:
+
+```groovy
+testClassesDirs = sourceSets.integrationTest.output.classesDirs
+classpath = sourceSets.integrationTest.runtimeClasspath
+```
+
+- Never disable `integrationTest` behind a project property; direct Gradle and IntelliJ runs must work.
+- Make `build` execute unit tests, `jacocoTestReport`, `jacocoTestCoverageVerification`, then `integrationTest`.
+- Enforce ordering with `integrationTest.mustRunAfter jacocoTestCoverageVerification`.
+- Keep line and branch coverage thresholds at 90%.
+- Finalize `build` with `buildSummary`. Print and write `build/reports/build-summary.txt` containing overall build status, unit-test totals, line/branch coverage and verification status, and integration-test totals.
+- Keep filtered execution working: `./gradlew integrationTest --tests fully.qualified.ClassName`.
+- Verify changes with `./gradlew clean build`.

@@ -1,0 +1,37 @@
+---
+description: REST controller conventions — OpenAPI annotations required on every endpoint
+globs: "**/adapters/incoming/rest/**/*.java,**/rest/**/*.java"
+alwaysApply: false
+---
+
+# REST Controllers & OpenAPI
+
+Controllers are thin incoming adapters: validate input, call the use case port, map the sealed `Result` to an HTTP response. **Every controller and endpoint carries OpenAPI annotations.**
+
+## Rules
+
+- Include `quarkus-smallrye-openapi` in every service.
+- Annotate every resource class with `@Tag` and every endpoint with `@Operation` plus `@APIResponse` entries for each outcome the sealed `Result` can produce:
+
+```java
+@Path("/positions")
+@Tag(name = "Positions", description = "Portfolio position management")
+public class PositionResource {
+
+    @POST
+    @Operation(summary = "Create a position", description = "Creates a new portfolio position from a transaction")
+    @APIResponse(responseCode = "201", description = "Position created",
+            content = @Content(schema = @Schema(implementation = PositionResponse.class)))
+    @APIResponse(responseCode = "409", description = "Position already exists")
+    @APIResponse(responseCode = "400", description = "Invalid request")
+    public Uni<Response> create(@Valid CreatePositionRequest request) {
+        return createPositionUseCase.execute(mapper.toCommand(request))
+                .onItem().transform(this::toResponse);
+    }
+}
+```
+
+- Document DTO fields with `@Schema(description = ..., example = ...)` on request/response records.
+- Map each sealed `Result` variant to a distinct, documented status code; the `@APIResponse` list should mirror the `Result` variants exhaustively.
+- Endpoints are reactive: return `Uni<Response>`/`Uni<Dto>`, never block.
+- Bean Validation (`@Valid`, constraint annotations) on request DTOs at the boundary; the core re-enforces domain invariants independently.

@@ -1,0 +1,19 @@
+---
+description: Baseline conventions for Java + Quarkus services
+alwaysApply: true
+---
+
+# Java + Quarkus Service Conventions
+
+This project is a reactive Java + Quarkus service. Core conventions:
+
+- **Architecture**: hexagonal (ports & adapters) with `adapters` (incoming/outgoing split by infrastructure kind), `core` (model, domain, ports, application), and `util` packages — see **hexagonal-architecture** rule.
+- **Reactive**: Mutiny (`Uni`/`Multi`) end to end; never block the event loop.
+- **Transaction boundaries**: never wrap a whole use case in `@WithTransaction`/`withTransaction` when it performs non-database work. Gather data first (HTTP calls, computation, etc.), then open the transaction only for the required database reads/writes, and publish to Redis/SQS/RabbitMQ or other infrastructure after it closes. Split the phases into separate methods or CDI beans when needed to avoid self-invocation bypassing transactional interception. Hold a database connection only for work that must be atomic.
+- **Outcomes**: each layer defines two sealed interfaces — `Result` for expected business outcomes (including business errors, returned as values) and `Error` for rollback-worthy failures (exceptions flowing through Mutiny's failure channel) — see **sealed-results-errors** rule.
+- **Mapping**: MapStruct with `componentModel = "cdi"` for all DTO/entity ↔ domain mapping — see **mapstruct-mappers** rule.
+- **REST**: thin controllers with mandatory OpenAPI annotations — see **rest-openapi** rule.
+- **Native JSON reflection**: GraalVM native images use closed-world analysis, while Jackson normally discovers DTO properties through reflection. Quarkus auto-registers types visible in strongly typed REST signatures, but cannot infer entities hidden behind `Response`/`Uni<Response>` or types selected only at runtime. Annotate every REST input/output DTO—and nested or polymorphic DTO type Jackson accesses—with `@RegisterForReflection`; prefer a direct DTO or typed `RestResponse<Dto>` return where practical. Do not blanket-annotate domain, service, or other classes unless a framework accesses them reflectively.
+- **Testing**: unit tests for every class in `src/test`, integration tests in `src/integrationTest`, Mockito in code (no annotations), DBRider for database state, programmatic WireMock for external HTTP — see **testing** rule.
+- **Logging**: correlation via OpenTelemetry `traceId` + MDC (`userId`), INFO/WARN/ERROR placement, no secrets — see **logging** rule (`shared/rules/logging.mdc`).
+- **Domain models**: Java records where possible, immutable, framework-free.

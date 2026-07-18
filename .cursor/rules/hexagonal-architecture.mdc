@@ -1,0 +1,45 @@
+---
+description: Hexagonal architecture layout for Java + Quarkus services — adapters, core, util
+globs: "**/*.java"
+alwaysApply: false
+---
+
+# Hexagonal Architecture (Ports & Adapters)
+
+Every Java + Quarkus service follows the same package layout under the root package (e.g. `com.company.service`):
+
+```
+com.company.service
+├── adapters
+│   ├── incoming            # driving adapters, split by infrastructure kind
+│   │   ├── rest            # JAX-RS resources, request/response DTOs, mappers
+│   │   ├── redis           # Redis stream/pub-sub consumers
+│   │   ├── sqs             # SQS listeners
+│   │   └── events          # other event consumers (Kafka, etc.)
+│   └── outgoing            # driven adapters, split by infrastructure kind
+│       ├── persistence     # Panache/JPA entities, repository adapters
+│       ├── rest            # REST clients to external services
+│       ├── redis           # Redis publishers/caches
+│       ├── sqs             # SQS producers
+│       └── events          # event publishers
+├── core
+│   ├── model               # domain models (records/POJOs, framework-free)
+│   ├── domain              # domain logic, invariants, domain services
+│   ├── ports               # interfaces the core exposes/requires
+│   │   ├── incoming        # use case interfaces (implemented by application)
+│   │   └── outgoing        # repository/client/publisher interfaces (implemented by adapters)
+│   └── application         # use case implementations and application services
+│       ├── usecase
+│       └── service
+└── util                    # cross-cutting helpers, no business logic
+```
+
+## Dependency Rules
+
+- **Core is framework-free**: no Quarkus, JAX-RS, JPA, Redis, SQS, Jackson, or MapStruct imports inside `core`. CDI annotations (`@ApplicationScoped`, `@Inject`, `@Named`) are the only tolerated framework touchpoint in `core/application`.
+- Dependencies point inward: `adapters -> core`, never `core -> adapters`. Core code must never import anything from `adapters.*` or `util` infrastructure helpers.
+- **Incoming adapters** call the core only through **incoming ports** (use case interfaces in `core/ports/incoming`). Controllers never call repositories or outgoing adapters directly.
+- **Outgoing adapters** implement **outgoing ports** (`core/ports/outgoing`). Application code injects the port interface, never the concrete adapter (inject `PositionRepository`, not `PositionPanacheRepositoryAdapter`).
+- When multiple implementations of a port exist, qualify them with `@Named(...)` on the adapter and at the injection site in the application service.
+- Each adapter package owns its own DTOs/entities and MapStruct mappers; domain models never leak wire or persistence formats, and DTOs/entities never leak into the core.
+- Reactive signatures: ports and use cases return Mutiny types (`Uni`/`Multi`) wrapping the sealed `Result` of the operation (see **sealed-results-errors** rule).

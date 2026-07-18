@@ -1,0 +1,34 @@
+---
+description: Cross-stack logging — correlation, levels, placement, and message style
+alwaysApply: true
+---
+
+# Logging
+
+Apply in Java (Quarkus) and Python services. Keep logs queryable, correlated, and free of noise or secrets.
+
+## Correlation
+
+- Every request/job carries a correlation id (prefer OpenTelemetry `traceId`; otherwise a request id) and, when known, `userId`.
+- Put both in request/job context (Java: MDC; Python: contextvars / structured logger bind) so every log line inherits them — never repeat them in the message.
+- Propagate across async work (Mutiny/Vert.x, asyncio tasks) and outbound HTTP.
+- Echo the correlation id to clients (e.g. `X-Request-Id`). Scheduled/system work: set `userId=system` (and start a span/trace when available).
+
+## Levels
+
+- **INFO**: normal milestones — use case start (key ids/fields), success, outbound provider call, job start/complete. Default app log level is INFO (no DEBUG in production paths).
+- **WARN**: expected business errors / degraded cases (not-found, conflict, invalid request, provider error payload, retries).
+- **ERROR**: unexpected failures only, with the exception attached, logged once at the handling boundary (global exception mapper / top-level handler). Never swallow async failures silently.
+
+## Style & content
+
+- Concise action + `key=value` context: `Creating transaction ticker=AAPL type=BUY quantity=10`.
+- Log ids, tickers, dates, counts — never secrets, tokens, or full payloads.
+- Prefer framework access/request logs for HTTP entry/exit; keep controllers thin (WARN on business→4xx only).
+
+## Where to log
+
+- **Use cases / application services**: INFO at start; INFO/WARN on meaningful outcomes.
+- **Outbound adapters**: INFO per external call essentials; WARN on provider errors; ERROR when translation/infra fails.
+- **Persistence**: no per-query INFO; let failures surface at the boundary handler.
+- **Global unexpected-error handler**: ERROR + stack/exception once; return a safe 5xx body that includes the correlation id.

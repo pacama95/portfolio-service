@@ -1,0 +1,28 @@
+---
+description: Use MapStruct for all mapping between adapter DTOs/entities and core domain models
+globs: "**/adapters/**/*.java,**/infrastructure/**/*.java"
+alwaysApply: false
+---
+
+# MapStruct Mappers
+
+All mapping between adapter representations (REST DTOs, persistence entities, event payloads) and core domain models is done with **MapStruct** — never hand-rolled field-by-field mapping inside adapters, controllers, or services.
+
+## Rules
+
+- One mapper per adapter concern, living next to the adapter in a `mapper` package (e.g. `adapters/incoming/rest/mapper`, `adapters/outgoing/persistence/mapper`).
+- Use CDI component model so mappers are injectable Quarkus beans:
+
+```java
+@Mapper(componentModel = "cdi")
+public interface PositionRestMapper {
+    PositionResponse toResponse(Position position);
+    Position toDomain(CreatePositionRequest request);
+}
+```
+
+- Domain models in `core/model` stay **free of MapStruct annotations** — mapping configuration (`@Mapping`, custom methods) belongs to the mapper in the adapter layer.
+- Controllers delegate to use cases and mappers: map request DTO to `Command`, map `Result.Success` payload to response DTO. No mapping logic inline in controllers.
+- Prefer explicit `@Mapping` for renames/derivations and default methods for small conversions; extract shared conversions (money, dates, enums) into a common mapper `uses = {...}`.
+- Add `unmappedTargetPolicy = ReportingPolicy.ERROR` (or configure it globally) so silently dropped fields fail the build.
+- Remember to add the MapStruct annotation processor to both `annotationProcessor` and `testAnnotationProcessor` configurations.
