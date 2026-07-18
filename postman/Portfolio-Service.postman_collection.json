@@ -1,0 +1,2878 @@
+{
+  "info": {
+    "_postman_id": "4d42341c-7c8c-43b0-ad78-cff38eba4263",
+    "name": "Portfolio Service API",
+    "description": "Ready-to-run Postman collection for portfolio-service.\n\n## Quick start\n1. Start the service on port **8087** (default).\n2. Import `Portfolio-Service.postman_collection.json` and `Local.postman_environment.json`.\n3. Select the **Portfolio Service \u2014 Local** environment.\n4. Send any request in **01 - All Endpoints**, or run a **Runner** folder via Collection Runner.\n\n## Auth\nAll `/api/*` calls require header `X-User-Id` (set from collection variable `userId`).\n\n## Variables\n- `baseUrl` \u2014 default `http://localhost:8087`\n- `userId` \u2014 demo user for scoping data\n- `ticker`, `fromDate`, `toDate` \u2014 shared filters\n- `transactionId` / `sellTransactionId` / `runId` \u2014 filled by create/trigger scripts\n\n## Runners\nUse Postman Collection Runner on folders A\u2013E to simulate end-to-end test cases.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8087",
+      "type": "string",
+      "description": "Service base URL"
+    },
+    {
+      "key": "userId",
+      "value": "postman-demo-user",
+      "type": "string",
+      "description": "Value for X-User-Id header"
+    },
+    {
+      "key": "ticker",
+      "value": "AAPL",
+      "type": "string",
+      "description": "Default ticker for path/query params"
+    },
+    {
+      "key": "fromDate",
+      "value": "2024-01-01",
+      "type": "string",
+      "description": "Inclusive history start (YYYY-MM-DD)"
+    },
+    {
+      "key": "toDate",
+      "value": "2024-12-31",
+      "type": "string",
+      "description": "Inclusive history end (YYYY-MM-DD)"
+    },
+    {
+      "key": "transactionId",
+      "value": "",
+      "type": "string",
+      "description": "Populated by Create transaction scripts"
+    },
+    {
+      "key": "msftTransactionId",
+      "value": "",
+      "type": "string",
+      "description": "Populated by BUY MSFT scripts"
+    },
+    {
+      "key": "sellTransactionId",
+      "value": "",
+      "type": "string",
+      "description": "Populated by SELL scripts"
+    },
+    {
+      "key": "dividendTransactionId",
+      "value": "",
+      "type": "string",
+      "description": "Populated by DIVIDEND scripts"
+    },
+    {
+      "key": "runId",
+      "value": "",
+      "type": "string",
+      "description": "Populated by Trigger ingestion scripts"
+    },
+    {
+      "key": "userA",
+      "value": "postman-demo-user",
+      "type": "string",
+      "description": "Used by Runner E to restore identity"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Collection-level pre-request: nothing required.",
+          "// X-User-Id is set per request from {{userId}}."
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - All Endpoints",
+      "item": [
+        {
+          "name": "Transactions",
+          "item": [
+            {
+              "name": "Create transaction (BUY AAPL)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "description": "Creates a BUY transaction. Saves `transactionId` for follow-up requests.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"transactionType\": \"BUY\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 10,\n  \"price\": 100,\n  \"fees\": 1,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-01-15\",\n  \"notes\": \"Initial Apple position\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"transactionId\", json.id);",
+                      "console.log(\"Saved transactionId=\" + json.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Create transaction (BUY MSFT)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"MSFT\",\n  \"transactionType\": \"BUY\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 5,\n  \"price\": 200,\n  \"fees\": 0.5,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-02-01\",\n  \"notes\": \"Microsoft starter lot\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Microsoft Corporation\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"msftTransactionId\", json.id);",
+                      "console.log(\"Saved msftTransactionId=\" + json.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Create transaction (SELL AAPL)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"transactionType\": \"SELL\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 3,\n  \"price\": 150,\n  \"fees\": 1,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-06-01\",\n  \"notes\": \"Partial take-profit\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"sellTransactionId\", json.id);",
+                      "console.log(\"Saved sellTransactionId=\" + json.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Create transaction (DIVIDEND AAPL)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"transactionType\": \"DIVIDEND\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 10,\n  \"price\": 0.24,\n  \"fees\": 0,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-05-15\",\n  \"notes\": \"Quarterly dividend\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"dividendTransactionId\", json.id);",
+                      "console.log(\"Saved dividendTransactionId=\" + json.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Get transaction by id",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "{{transactionId}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List all transactions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test('Body is an array', function () {",
+                      "    pm.expect(pm.response.json()).to.be.an('array');",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List transactions by ticker",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/ticker/{{ticker}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "ticker",
+                    "{{ticker}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Search transactions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/search?ticker={{ticker}}&type=BUY&fromDate={{fromDate}}&toDate={{toDate}}&sort=DESC",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "search"
+                  ],
+                  "query": [
+                    {
+                      "key": "ticker",
+                      "value": "{{ticker}}"
+                    },
+                    {
+                      "key": "type",
+                      "value": "BUY"
+                    },
+                    {
+                      "key": "fromDate",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "toDate",
+                      "value": "{{toDate}}"
+                    },
+                    {
+                      "key": "sort",
+                      "value": "DESC"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Update transaction",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "{{transactionId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"quantity\": 12,\n  \"price\": 105,\n  \"fees\": 1.5,\n  \"notes\": \"Corrected lot size and price\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Count all transactions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/count",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "count"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Count transactions by ticker",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/count/{{ticker}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "count",
+                    "{{ticker}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Delete transaction",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "{{transactionId}}"
+                  ]
+                },
+                "description": "Deletes the transaction stored in `transactionId`. Prefer runner folders for safe sequences."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 204\", function () {",
+                      "    pm.response.to.have.status(204);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Positions",
+          "item": [
+            {
+              "name": "List all positions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List active positions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions/active",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions",
+                    "active"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Get position by ticker",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions/ticker/{{ticker}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions",
+                    "ticker",
+                    "{{ticker}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Position exists by ticker",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions/ticker/{{ticker}}/exists",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions",
+                    "ticker",
+                    "{{ticker}}",
+                    "exists"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Count all positions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions/count",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions",
+                    "count"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Count active positions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions/count/active",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions",
+                    "count",
+                    "active"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Update market price",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions/ticker/{{ticker}}/price",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions",
+                    "ticker",
+                    "{{ticker}}",
+                    "price"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"price\": 185.5,\n  \"currency\": \"USD\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Portfolio",
+          "item": [
+            {
+              "name": "Portfolio summary (all)",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/portfolio/summary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "portfolio",
+                    "summary"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Portfolio summary (active)",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/portfolio/summary/active",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "portfolio",
+                    "summary",
+                    "active"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Daily History",
+          "item": [
+            {
+              "name": "Daily position snapshots",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/positions?from={{fromDate}}&to={{toDate}}&ticker={{ticker}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "positions"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    },
+                    {
+                      "key": "ticker",
+                      "value": "{{ticker}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Price history",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/prices?symbols={{ticker}},MSFT&from={{fromDate}}&to={{toDate}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "prices"
+                  ],
+                  "query": [
+                    {
+                      "key": "symbols",
+                      "value": "{{ticker}},MSFT"
+                    },
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Portfolio valuation history",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/portfolio/valuation?from={{fromDate}}&to={{toDate}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "portfolio",
+                    "valuation"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Capital flows",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/portfolio/capital-flows?from={{fromDate}}&to={{toDate}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "portfolio",
+                    "capital-flows"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Performance inputs",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/portfolio/performance-inputs?from={{fromDate}}&to={{toDate}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "portfolio",
+                    "performance-inputs"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Price Ingestion",
+          "item": [
+            {
+              "name": "Trigger ingestion run",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/price-ingestion/runs",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "price-ingestion",
+                    "runs"
+                  ]
+                },
+                "description": "Async job. Expects 202 and stores `runId`. Requires Twelve Data API key for real market data.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"from\": \"{{fromDate}}\",\n  \"to\": \"{{toDate}}\",\n  \"ticker\": \"{{ticker}}\",\n  \"includeBackfill\": false\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 202\", function () {",
+                      "    pm.response.to.have.status(202);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Has runId\", function () {",
+                      "    pm.expect(json).to.have.property(\"runId\");",
+                      "});",
+                      "pm.collectionVariables.set(\"runId\", json.runId);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Latest ingestion run",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/price-ingestion/runs/latest",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "price-ingestion",
+                    "runs",
+                    "latest"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Health (no auth)",
+          "item": [
+            {
+              "name": "Health check",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/q/health",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "q",
+                    "health"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "OpenAPI document",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/q/openapi",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "q",
+                    "openapi"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "Every public endpoint with ready-to-send example data. Collection header X-User-Id and variables make each request one-click."
+    },
+    {
+      "name": "02 - Collection Runners (test cases)",
+      "item": [
+        {
+          "name": "Runner A \u2014 Transaction CRUD lifecycle",
+          "item": [
+            {
+              "name": "1. Create BUY AAPL",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"transactionType\": \"BUY\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 10,\n  \"price\": 100,\n  \"fees\": 1,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-01-15\",\n  \"notes\": \"Initial Apple position\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"transactionId\", json.id);",
+                      "console.log(\"Saved transactionId=\" + json.id);",
+                      "pm.test(\"Ticker is AAPL\", function () {",
+                      "    pm.expect(pm.response.json().ticker).to.eql(\"AAPL\");",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Get created transaction",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "{{transactionId}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Id matches\", function () {",
+                      "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get(\"transactionId\"));",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "3. Update transaction",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "{{transactionId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"quantity\": 12,\n  \"price\": 105,\n  \"fees\": 1.5,\n  \"notes\": \"Corrected lot size and price\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Quantity updated\", function () {",
+                      "    pm.expect(Number(pm.response.json().quantity)).to.eql(12);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "4. Search by ticker",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/search?ticker={{ticker}}&sort=DESC",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "search"
+                  ],
+                  "query": [
+                    {
+                      "key": "ticker",
+                      "value": "{{ticker}}"
+                    },
+                    {
+                      "key": "sort",
+                      "value": "DESC"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test('At least one result', function () {",
+                      "    pm.expect(pm.response.json().length).to.be.above(0);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5. Count by ticker",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/count/{{ticker}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "count",
+                    "{{ticker}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test('Count is positive', function () {",
+                      "    pm.expect(Number(pm.response.text())).to.be.above(0);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "6. Delete transaction",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "{{transactionId}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 204\", function () {",
+                      "    pm.response.to.have.status(204);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "7. Get deleted \u2192 404",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "{{transactionId}}"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 404\", function () {",
+                      "    pm.response.to.have.status(404);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "description": "Create \u2192 get \u2192 update \u2192 search \u2192 count \u2192 delete \u2192 verify 404. Run this folder in Collection Runner."
+        },
+        {
+          "name": "Runner B \u2014 Buy then sell portfolio flow",
+          "item": [
+            {
+              "name": "1. BUY AAPL (10 @ 100)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"transactionType\": \"BUY\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 10,\n  \"price\": 100,\n  \"fees\": 1,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-01-15\",\n  \"notes\": \"Initial Apple position\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"transactionId\", json.id);",
+                      "console.log(\"Saved transactionId=\" + json.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. BUY MSFT (5 @ 200)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"MSFT\",\n  \"transactionType\": \"BUY\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 5,\n  \"price\": 200,\n  \"fees\": 0.5,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-02-01\",\n  \"notes\": \"Microsoft starter lot\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Microsoft Corporation\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"msftTransactionId\", json.id);",
+                      "console.log(\"Saved msftTransactionId=\" + json.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "3. SELL AAPL (3 @ 150)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"transactionType\": \"SELL\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 3,\n  \"price\": 150,\n  \"fees\": 1,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-06-01\",\n  \"notes\": \"Partial take-profit\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"sellTransactionId\", json.id);",
+                      "console.log(\"Saved sellTransactionId=\" + json.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "4. Active positions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions/active",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions",
+                    "active"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test('Has positions', function () {",
+                      "    pm.expect(pm.response.json().length).to.be.above(0);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5. Get AAPL position",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions/ticker/AAPL",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions",
+                    "ticker",
+                    "AAPL"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"AAPL still active with remaining shares\", function () {",
+                      "    const p = pm.response.json();",
+                      "    pm.expect(p.ticker).to.eql(\"AAPL\");",
+                      "    pm.expect(Number(p.totalQuantity)).to.eql(7);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "6. Update AAPL market price",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/positions/ticker/AAPL/price",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "positions",
+                    "ticker",
+                    "AAPL",
+                    "price"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"price\": 185.5,\n  \"currency\": \"USD\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test('Current price updated', function () {",
+                      "    pm.expect(Number(pm.response.json().currentPrice)).to.eql(185.5);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "7. Portfolio summary (active)",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/portfolio/summary/active",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "portfolio",
+                    "summary",
+                    "active"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Has valuation fields\", function () {",
+                      "    const s = pm.response.json();",
+                      "    pm.expect(s).to.have.property(\"totalMarketValue\");",
+                      "    pm.expect(s).to.have.property(\"activePositions\");",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "8. Capital flows",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/portfolio/capital-flows?from={{fromDate}}&to={{toDate}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "portfolio",
+                    "capital-flows"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Has flows array\", function () {",
+                      "    pm.expect(pm.response.json()).to.have.property(\"flows\");",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "description": "Seeds a multi-ticker book (BUY AAPL, BUY MSFT, SELL AAPL), then checks positions, manual mark-to-market, summary, and capital flows."
+        },
+        {
+          "name": "Runner C \u2014 Daily history & ingestion",
+          "item": [
+            {
+              "name": "1. Ensure BUY AAPL exists",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"transactionType\": \"BUY\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 10,\n  \"price\": 100,\n  \"fees\": 1,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-01-15\",\n  \"notes\": \"Initial Apple position\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"transactionId\", json.id);",
+                      "console.log(\"Saved transactionId=\" + json.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Daily position snapshots",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/positions?from={{fromDate}}&to={{toDate}}&ticker={{ticker}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "positions"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    },
+                    {
+                      "key": "ticker",
+                      "value": "{{ticker}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "3. Trigger price ingestion",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/price-ingestion/runs",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "price-ingestion",
+                    "runs"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"from\": \"{{fromDate}}\",\n  \"to\": \"{{toDate}}\",\n  \"ticker\": \"{{ticker}}\",\n  \"includeBackfill\": false\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Accepted or conflict (already running)', function () {",
+                      "    pm.expect([202, 409]).to.include(pm.response.code);",
+                      "});",
+                      "if (pm.response.code === 202) {",
+                      "    const json = pm.response.json();",
+                      "    pm.collectionVariables.set(\"runId\", json.runId);",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "4. Latest ingestion run",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/price-ingestion/runs/latest",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "price-ingestion",
+                    "runs",
+                    "latest"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 or 404 if never run', function () {",
+                      "    pm.expect([200, 404]).to.include(pm.response.code);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5. Price history",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/prices?symbols={{ticker}}&from={{fromDate}}&to={{toDate}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "prices"
+                  ],
+                  "query": [
+                    {
+                      "key": "symbols",
+                      "value": "{{ticker}}"
+                    },
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "6. Portfolio valuation history",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/portfolio/valuation?from={{fromDate}}&to={{toDate}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "portfolio",
+                    "valuation"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "7. Performance inputs",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/daily-history/portfolio/performance-inputs?from={{fromDate}}&to={{toDate}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "daily-history",
+                    "portfolio",
+                    "performance-inputs"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "{{fromDate}}"
+                    },
+                    {
+                      "key": "to",
+                      "value": "{{toDate}}"
+                    }
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Has valuations and capitalFlows\", function () {",
+                      "    const body = pm.response.json();",
+                      "    pm.expect(body).to.have.property(\"valuations\");",
+                      "    pm.expect(body).to.have.property(\"capitalFlows\");",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "description": "Ledger-derived history plus optional Twelve Data ingestion. Ingestion may 409 if a run is already in progress; price history may be empty without a completed run."
+        },
+        {
+          "name": "Runner D \u2014 Auth guard (missing X-User-Id)",
+          "item": [
+            {
+              "name": "Create without X-User-Id \u2192 400",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"transactionType\": \"BUY\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 10,\n  \"price\": 100,\n  \"fees\": 1,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-01-15\",\n  \"notes\": \"Initial Apple position\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 400\", function () {",
+                      "    pm.response.to.have.status(400);",
+                      "});",
+                      "pm.test(\"MISSING_USER_ID error\", function () {",
+                      "    const json = pm.response.json();",
+                      "    pm.expect(json.error).to.eql(\"MISSING_USER_ID\");",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List without X-User-Id \u2192 400",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 400\", function () {",
+                      "    pm.response.to.have.status(400);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Health still works without header",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/q/health",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "q",
+                    "health"
+                  ]
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "description": "Verifies UserIdentityFilter rejects /api/* without X-User-Id while /q/health stays open."
+        },
+        {
+          "name": "Runner E \u2014 User isolation",
+          "item": [
+            {
+              "name": "1. Create as user A",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ticker\": \"AAPL\",\n  \"transactionType\": \"BUY\",\n  \"assetType\": \"COMMON_STOCK\",\n  \"quantity\": 10,\n  \"price\": 100,\n  \"fees\": 1,\n  \"currency\": \"USD\",\n  \"transactionDate\": \"2024-01-15\",\n  \"notes\": \"Owned by user A\",\n  \"exchange\": \"NASDAQ\",\n  \"country\": \"US\",\n  \"companyName\": \"Apple Inc.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "const json = pm.response.json();",
+                      "pm.test(\"Response has id\", function () {",
+                      "    pm.expect(json).to.have.property(\"id\");",
+                      "});",
+                      "pm.collectionVariables.set(\"transactionId\", json.id);",
+                      "console.log(\"Saved transactionId=\" + json.id);",
+                      "const uid = pm.environment.get(\"userId\") || pm.collectionVariables.get(\"userId\");",
+                      "pm.collectionVariables.set(\"userA\", uid);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Switch to user B (pre-request)",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "// Prefer environment (wins over collection vars in Postman resolution).",
+                      "const current = pm.environment.get(\"userId\") || pm.collectionVariables.get(\"userId\") || \"postman-demo-user\";",
+                      "pm.collectionVariables.set(\"userA\", current);",
+                      "pm.environment.set(\"userId\", \"postman-user-b\");",
+                      "pm.collectionVariables.set(\"userId\", \"postman-user-b\");",
+                      "console.log(\"Switched userId to postman-user-b (was \" + current + \")\");"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 404\", function () {",
+                      "    pm.response.to.have.status(404);",
+                      "});",
+                      "pm.test(\"User B cannot see User A transaction\", function () {",
+                      "    pm.expect(pm.response.code).to.eql(404);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "{{transactionId}}"
+                  ]
+                },
+                "description": "Temporarily sets userId to postman-user-b, then expects 404."
+              },
+              "response": []
+            },
+            {
+              "name": "3. Restore user A and verify visible",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const original = pm.collectionVariables.get(\"userA\") || \"postman-demo-user\";",
+                      "pm.environment.set(\"userId\", original);",
+                      "pm.collectionVariables.set(\"userId\", original);",
+                      "console.log(\"Restored userId to \" + original);"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Id",
+                    "value": "{{userId}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/transactions/{{transactionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "transactions",
+                    "{{transactionId}}"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "Creates a transaction as the collection userId, switches to postman-user-b (404), then restores the original user and verifies access. Restores userId at the end."
+        }
+      ],
+      "description": "Ordered scenarios for Postman Collection Runner / Newman. Run one folder at a time. Prefer a fresh userId (or empty DB) for Runner B."
+    }
+  ]
+}
