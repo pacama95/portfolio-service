@@ -1,0 +1,45 @@
+transactions:
+  - id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    user_id: "user-a"
+    ticker: "AAPL"
+    transaction_type: BUY
+    asset_type: COMMON_STOCK
+    quantity: 15.000000
+    price: 105.000000
+    fees: 1.000000
+    currency: USD
+    transaction_date: "2024-01-01"
+    company_name: "Apple Inc"
+  - id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    user_id: "user-a"
+    ticker: "AAPL"
+    transaction_type: SELL
+    asset_type: COMMON_STOCK
+    quantity: 2.000000
+    price: 120.000000
+    fees: 0.000000
+    currency: USD
+    transaction_date: "2024-01-05"
+    company_name: Apple
+  - id: "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    user_id: "user-a"
+    ticker: "MSFT"
+    transaction_type: BUY
+    asset_type: COMMON_STOCK
+    quantity: 5.000000
+    price: 200.000000
+    fees: 0.000000
+    currency: USD
+    transaction_date: "2024-01-02"
+    company_name: Microsoft
+  - id: "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    user_id: "user-b"
+    ticker: "GOOG"
+    transaction_type: BUY
+    asset_type: COMMON_STOCK
+    quantity: 3.000000
+    price: 150.000000
+    fees: 0.000000
+    currency: USD
+    transaction_date: "2024-01-03"
+    company_name: Alphabet
