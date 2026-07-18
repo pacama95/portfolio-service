@@ -1,0 +1,37 @@
+####
+# JVM runnable image of the portfolio-service application.
+# Build stage
+####
+FROM gradle:8.10-jdk21 AS build
+
+WORKDIR /app
+
+COPY gradle/ gradle/
+COPY gradlew gradlew.bat build.gradle settings.gradle gradle.properties ./
+COPY gradle/libs.versions.toml gradle/libs.versions.toml
+COPY lombok.config ./
+
+RUN ./gradlew dependencies --no-daemon
+
+COPY src/ src/
+
+RUN ./gradlew build -x test --no-daemon
+
+####
+# Runtime stage
+####
+FROM registry.access.redhat.com/ubi8/openjdk-21-runtime:1.18
+
+ENV LANGUAGE='en_US:en'
+
+COPY --from=build --chown=185 /app/build/quarkus-app/lib/ /deployments/lib/
+COPY --from=build --chown=185 /app/build/quarkus-app/*.jar /deployments/
+COPY --from=build --chown=185 /app/build/quarkus-app/app/ /deployments/app/
+COPY --from=build --chown=185 /app/build/quarkus-app/quarkus/ /deployments/quarkus/
+
+EXPOSE 8080
+USER 185
+
+ENV QUARKUS_PROFILE=prod
+
+ENTRYPOINT ["java", "-jar", "/deployments/quarkus-run.jar"]
