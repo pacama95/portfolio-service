@@ -5,6 +5,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.GetPriceIngestionRunUseCase;
 import com.portfolio.core.ports.outgoing.PriceIngestionRunRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -53,7 +54,9 @@ class GetPriceIngestionRunServiceTest {
         when(runRepository.findLatest()).thenReturn(Uni.createFrom().item(Optional.of(run)));
 
         GetPriceIngestionRunUseCase.Result result = service.execute(new GetPriceIngestionRunUseCase.Query(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPriceIngestionRunUseCase.Result.Success success =
                 assertInstanceOf(GetPriceIngestionRunUseCase.Result.Success.class, result);
@@ -74,7 +77,9 @@ class GetPriceIngestionRunServiceTest {
         when(runRepository.findLatest()).thenReturn(Uni.createFrom().item(Optional.empty()));
 
         GetPriceIngestionRunUseCase.Result result = service.execute(new GetPriceIngestionRunUseCase.Query(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetPriceIngestionRunUseCase.Result.NotFound.class, result);
     }

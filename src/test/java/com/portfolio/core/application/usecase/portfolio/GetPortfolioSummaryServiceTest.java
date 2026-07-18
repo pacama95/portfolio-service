@@ -10,6 +10,7 @@ import com.portfolio.core.ports.incoming.GetPortfolioSummaryUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -42,7 +43,9 @@ class GetPortfolioSummaryServiceTest {
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of()));
 
         GetPortfolioSummaryUseCase.Result result = service.execute(GetPortfolioSummaryUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioSummaryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioSummaryUseCase.Result.Success.class, result);
@@ -64,7 +67,9 @@ class GetPortfolioSummaryServiceTest {
         when(marketDataPort.getSpotPrice("MSFT")).thenReturn(Uni.createFrom().item(new BigDecimal("250")));
 
         GetPortfolioSummaryUseCase.Result result = service.execute(GetPortfolioSummaryUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioSummaryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioSummaryUseCase.Result.Success.class, result);
@@ -86,7 +91,9 @@ class GetPortfolioSummaryServiceTest {
                 .thenReturn(Uni.createFrom().item(new BigDecimal("1.10")));
 
         GetPortfolioSummaryUseCase.Result result = service.execute(GetPortfolioSummaryUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioSummaryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioSummaryUseCase.Result.Success.class, result);
@@ -105,7 +112,9 @@ class GetPortfolioSummaryServiceTest {
                 .thenReturn(Uni.createFrom().failure(new RuntimeException("fx down")));
 
         GetPortfolioSummaryUseCase.Result result = service.execute(GetPortfolioSummaryUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioSummaryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioSummaryUseCase.Result.Success.class, result);
@@ -124,7 +133,9 @@ class GetPortfolioSummaryServiceTest {
         when(marketDataPort.getSpotPrice("MSFT")).thenReturn(Uni.createFrom().item(new BigDecimal("210")));
 
         GetPortfolioSummaryUseCase.Result result = service.execute(GetPortfolioSummaryUseCase.Query.active(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioSummaryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioSummaryUseCase.Result.Success.class, result);
@@ -160,7 +171,9 @@ class GetPortfolioSummaryServiceTest {
         when(marketDataPort.getSpotPrice("AAPL")).thenReturn(Uni.createFrom().item(new BigDecimal("150")));
 
         GetPortfolioSummaryUseCase.Result result = service.execute(GetPortfolioSummaryUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioSummaryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioSummaryUseCase.Result.Success.class, result);
@@ -177,7 +190,9 @@ class GetPortfolioSummaryServiceTest {
                 .thenReturn(Uni.createFrom().failure(new RuntimeException("spot down")));
 
         GetPortfolioSummaryUseCase.Result result = service.execute(GetPortfolioSummaryUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioSummaryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioSummaryUseCase.Result.Success.class, result);

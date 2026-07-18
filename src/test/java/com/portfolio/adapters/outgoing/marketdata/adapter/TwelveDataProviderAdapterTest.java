@@ -3,11 +3,13 @@ package com.portfolio.adapters.outgoing.marketdata.adapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.portfolio.adapters.outgoing.marketdata.client.TwelveDataClient;
+import com.portfolio.core.application.service.CurrencyResolver;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.FxRateEntry;
 import com.portfolio.core.model.PriceHistoryEntry;
 import com.portfolio.core.ports.outgoing.MarketDataProviderError;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -15,9 +17,9 @@ import org.mockito.Mockito;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
@@ -27,11 +29,14 @@ class TwelveDataProviderAdapterTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final TwelveDataClient client = Mockito.mock(TwelveDataClient.class);
+    private final CurrencyResolver currencyResolver = new CurrencyResolver(Map.of(
+            "GBX", "GBP:0.01",
+            "GBp", "GBP:0.01"));
     private TwelveDataProviderAdapter adapter;
 
     @BeforeEach
     void setUp() {
-        adapter = new TwelveDataProviderAdapter(client, API_KEY);
+        adapter = new TwelveDataProviderAdapter(client, API_KEY, currencyResolver);
     }
 
     @Test
@@ -39,7 +44,10 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{\"price\":\"123.45\"}");
         when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        BigDecimal price = adapter.fetchSpotPrice("AAPL").await().indefinitely();
+        BigDecimal price = adapter.fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, new BigDecimal("123.45").compareTo(price));
     }
@@ -49,8 +57,10 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{\"price\":null}");
         when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(MarketDataProviderError.MissingData.class,
-                () -> adapter.fetchSpotPrice("AAPL").await().indefinitely());
+        adapter.fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.MissingData.class);
     }
 
     @Test
@@ -58,8 +68,10 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
         when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(MarketDataProviderError.ErrorResponse.class,
-                () -> adapter.fetchSpotPrice("AAPL").await().indefinitely());
+        adapter.fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
     }
 
     @Test
@@ -67,7 +79,10 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{\"rate\":\"1.2345\"}");
         when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        BigDecimal rate = adapter.fetchFxRate(Currency.EUR, Currency.USD).await().indefinitely();
+        BigDecimal rate = adapter.fetchFxRate(Currency.EUR, Currency.USD)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, new BigDecimal("1.2345").compareTo(rate));
     }
@@ -77,8 +92,10 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{}");
         when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(MarketDataProviderError.MissingData.class,
-                () -> adapter.fetchFxRate(Currency.EUR, Currency.USD).await().indefinitely());
+        adapter.fetchFxRate(Currency.EUR, Currency.USD)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.MissingData.class);
     }
 
     @Test
@@ -86,8 +103,10 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
         when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(MarketDataProviderError.ErrorResponse.class,
-                () -> adapter.fetchFxRate(Currency.EUR, Currency.USD).await().indefinitely());
+        adapter.fetchFxRate(Currency.EUR, Currency.USD)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
     }
 
     @Test
@@ -106,7 +125,10 @@ class TwelveDataProviderAdapterTest {
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(node));
 
-        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to).await().indefinitely();
+        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(2, entries.size());
         assertEquals("AAPL", entries.get(0).symbol());
@@ -120,8 +142,10 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{}");
         when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(MarketDataProviderError.MissingData.class,
-                () -> adapter.fetchSpotPrice("AAPL").await().indefinitely());
+        adapter.fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.MissingData.class);
     }
 
     @Test
@@ -129,8 +153,10 @@ class TwelveDataProviderAdapterTest {
         JsonNode node = MAPPER.readTree("{\"rate\":null}");
         when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(MarketDataProviderError.MissingData.class,
-                () -> adapter.fetchFxRate(Currency.EUR, Currency.USD).await().indefinitely());
+        adapter.fetchFxRate(Currency.EUR, Currency.USD)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.MissingData.class);
     }
 
     @Test
@@ -141,8 +167,10 @@ class TwelveDataProviderAdapterTest {
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(MarketDataProviderError.ErrorResponse.class,
-                () -> adapter.fetchPriceHistory("AAPL", from, to).await().indefinitely());
+        adapter.fetchPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
     }
 
     @Test
@@ -153,8 +181,10 @@ class TwelveDataProviderAdapterTest {
         when(client.timeSeries("EUR/USD", "1day", from.toString(), to.toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(node));
 
-        assertThrows(MarketDataProviderError.ErrorResponse.class,
-                () -> adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to).await().indefinitely());
+        adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
     }
 
     @Test
@@ -165,7 +195,10 @@ class TwelveDataProviderAdapterTest {
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(node));
 
-        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to).await().indefinitely();
+        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertTrue(entries.isEmpty());
     }
@@ -178,7 +211,10 @@ class TwelveDataProviderAdapterTest {
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(node));
 
-        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to).await().indefinitely();
+        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertTrue(entries.isEmpty());
     }
@@ -195,7 +231,10 @@ class TwelveDataProviderAdapterTest {
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(node));
 
-        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to).await().indefinitely();
+        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Currency.USD, entries.getFirst().currency());
     }
@@ -209,7 +248,9 @@ class TwelveDataProviderAdapterTest {
                 .thenReturn(Uni.createFrom().item(node));
 
         List<FxRateEntry> entries = adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertTrue(entries.isEmpty());
     }
@@ -223,7 +264,9 @@ class TwelveDataProviderAdapterTest {
                 .thenReturn(Uni.createFrom().item(node));
 
         List<FxRateEntry> entries = adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertTrue(entries.isEmpty());
     }
@@ -236,13 +279,16 @@ class TwelveDataProviderAdapterTest {
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(node));
 
-        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to).await().indefinitely();
+        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertTrue(entries.isEmpty());
     }
 
     @Test
-    void givenInvalidCurrencyMeta_whenFetchPriceHistory_thenDefaultsToUsd() throws Exception {
+    void givenUnsupportedCurrencyMeta_whenFetchPriceHistory_thenThrows() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
         JsonNode node = MAPPER.readTree("""
@@ -254,9 +300,76 @@ class TwelveDataProviderAdapterTest {
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(node));
 
-        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to).await().indefinitely();
+        adapter.fetchPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.UnsupportedCurrency.class);
+    }
 
-        assertEquals(Currency.USD, entries.getFirst().currency());
+    @Test
+    void givenGbxCurrencyMeta_whenFetchPriceHistory_thenScalesToGbp() throws Exception {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        LocalDate to = LocalDate.of(2024, 1, 1);
+        JsonNode node = MAPPER.readTree("""
+                {
+                  "meta": {"currency": "GBX"},
+                  "values": [{"datetime": "2024-01-01", "close": "12345"}]
+                }
+                """);
+        when(client.timeSeries("LLOY", "1day", from.toString(), to.toString(), API_KEY))
+                .thenReturn(Uni.createFrom().item(node));
+
+        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("LLOY", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Currency.GBP, entries.getFirst().currency());
+        assertEquals(0, new BigDecimal("123.45").compareTo(entries.getFirst().closePrice()));
+    }
+
+    @Test
+    void givenGbpPenceCurrencyMeta_whenFetchPriceHistory_thenScalesToGbp() throws Exception {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        LocalDate to = LocalDate.of(2024, 1, 1);
+        JsonNode node = MAPPER.readTree("""
+                {
+                  "meta": {"currency": "GBp"},
+                  "values": [{"datetime": "2024-01-01", "close": "500"}]
+                }
+                """);
+        when(client.timeSeries("LLOY", "1day", from.toString(), to.toString(), API_KEY))
+                .thenReturn(Uni.createFrom().item(node));
+
+        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("LLOY", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Currency.GBP, entries.getFirst().currency());
+        assertEquals(0, new BigDecimal("5.00").compareTo(entries.getFirst().closePrice()));
+    }
+
+    @Test
+    void givenPlainGbpCurrencyMeta_whenFetchPriceHistory_thenDoesNotRescale() throws Exception {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        LocalDate to = LocalDate.of(2024, 1, 1);
+        JsonNode node = MAPPER.readTree("""
+                {
+                  "meta": {"currency": "GBP"},
+                  "values": [{"datetime": "2024-01-01", "close": "5.00"}]
+                }
+                """);
+        when(client.timeSeries("BP", "1day", from.toString(), to.toString(), API_KEY))
+                .thenReturn(Uni.createFrom().item(node));
+
+        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("BP", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Currency.GBP, entries.getFirst().currency());
+        assertEquals(0, new BigDecimal("5.00").compareTo(entries.getFirst().closePrice()));
     }
 
     @Test
@@ -275,7 +388,9 @@ class TwelveDataProviderAdapterTest {
                 .thenReturn(Uni.createFrom().item(node));
 
         List<FxRateEntry> entries = adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(2, entries.size());
         assertEquals(Currency.EUR, entries.get(0).baseCurrency());

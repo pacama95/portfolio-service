@@ -10,6 +10,7 @@ import com.portfolio.core.ports.incoming.GetPositionsUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -44,7 +45,9 @@ class GetPositionsServiceTest {
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of()));
 
         GetPositionsUseCase.Result result = service.execute(GetPositionsUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPositionsUseCase.Result.Success success =
                 assertInstanceOf(GetPositionsUseCase.Result.Success.class, result);
@@ -61,7 +64,9 @@ class GetPositionsServiceTest {
         when(marketDataPort.getSpotPrice("MSFT")).thenReturn(Uni.createFrom().item(new BigDecimal("210")));
 
         GetPositionsUseCase.Result result = service.execute(GetPositionsUseCase.Query.active(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPositionsUseCase.Result.Success success =
                 assertInstanceOf(GetPositionsUseCase.Result.Success.class, result);
@@ -79,7 +84,9 @@ class GetPositionsServiceTest {
                 .thenReturn(Uni.createFrom().failure(new RuntimeException("market data down")));
 
         GetPositionsUseCase.Result result = service.execute(GetPositionsUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPositionsUseCase.Result.Success success =
                 assertInstanceOf(GetPositionsUseCase.Result.Success.class, result);
@@ -96,7 +103,9 @@ class GetPositionsServiceTest {
         when(marketDataPort.getSpotPrice("AAPL")).thenReturn(Uni.createFrom().item(new BigDecimal("150")));
 
         GetPositionsUseCase.Result result = service.execute(GetPositionsUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPositionsUseCase.Result.Success success =
                 assertInstanceOf(GetPositionsUseCase.Result.Success.class, result);

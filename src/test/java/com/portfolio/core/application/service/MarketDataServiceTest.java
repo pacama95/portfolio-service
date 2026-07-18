@@ -9,6 +9,7 @@ import com.portfolio.core.model.SpotQuoteKind;
 import com.portfolio.core.ports.outgoing.MarketDataProviderPort;
 import com.portfolio.core.ports.outgoing.MarketDataStorePort;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -46,7 +47,10 @@ class MarketDataServiceTest {
                 new SpotQuote(SpotQuoteKind.PRICE, "AAPL", new BigDecimal("190"), null, null, null,
                         OffsetDateTime.now(), QuoteSource.PROVIDER))));
 
-        BigDecimal price = service.getSpotPrice("AAPL").await().indefinitely();
+        BigDecimal price = service.getSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, new BigDecimal("190").compareTo(price));
         verify(provider, never()).fetchSpotPrice(any());
@@ -63,7 +67,10 @@ class MarketDataServiceTest {
             return Uni.createFrom().item(quote);
         });
 
-        BigDecimal price = service.getSpotPrice("AAPL").await().indefinitely();
+        BigDecimal price = service.getSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, new BigDecimal("191").compareTo(price));
         verify(store).upsertSpotQuote(any());
@@ -78,7 +85,10 @@ class MarketDataServiceTest {
                 new PriceHistoryEntry("AAPL", to, new BigDecimal("101"), null, Currency.USD, OffsetDateTime.now()));
         when(store.findPrices("AAPL", from, to)).thenReturn(Uni.createFrom().item(stored));
 
-        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to).await().indefinitely();
+        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(2, result.size());
         verify(provider, never()).fetchPriceHistory(any(), any(), any());
@@ -100,7 +110,10 @@ class MarketDataServiceTest {
         when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
-        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to).await().indefinitely();
+        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(2, result.size());
         verify(provider).fetchPriceHistory("AAPL", to, to);
@@ -109,7 +122,10 @@ class MarketDataServiceTest {
 
     @Test
     void givenSameCurrency_whenGetFxRate_thenReturnsOne() {
-        BigDecimal rate = service.getFxRate(Currency.USD, Currency.USD).await().indefinitely();
+        BigDecimal rate = service.getFxRate(Currency.USD, Currency.USD)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, BigDecimal.ONE.compareTo(rate));
         verify(store, never()).findSpotQuote(any(), any());
@@ -122,7 +138,10 @@ class MarketDataServiceTest {
                 new SpotQuote(SpotQuoteKind.FX, "EUR/USD", new BigDecimal("1.10"), null,
                         Currency.EUR, Currency.USD, OffsetDateTime.now(), QuoteSource.PROVIDER))));
 
-        BigDecimal rate = service.getFxRate(Currency.EUR, Currency.USD).await().indefinitely();
+        BigDecimal rate = service.getFxRate(Currency.EUR, Currency.USD)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, new BigDecimal("1.10").compareTo(rate));
         verify(provider, never()).fetchFxRate(any(), any());
@@ -139,7 +158,10 @@ class MarketDataServiceTest {
             return Uni.createFrom().item(quote);
         });
 
-        BigDecimal rate = service.getFxRate(Currency.EUR, Currency.USD).await().indefinitely();
+        BigDecimal rate = service.getFxRate(Currency.EUR, Currency.USD)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, new BigDecimal("1.12").compareTo(rate));
         verify(store).upsertSpotQuote(any());
@@ -154,7 +176,10 @@ class MarketDataServiceTest {
         when(store.findPrices("AAPL", from, to)).thenReturn(Uni.createFrom().item(partial));
         when(store.hasCoverage("PRICE", "AAPL", from, to)).thenReturn(Uni.createFrom().item(true));
 
-        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to).await().indefinitely();
+        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(1, result.size());
         verify(provider, never()).fetchPriceHistory(any(), any(), any());
@@ -165,7 +190,10 @@ class MarketDataServiceTest {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 2);
 
-        List<FxRateEntry> result = service.getFxHistory(Currency.USD, Currency.USD, from, to).await().indefinitely();
+        List<FxRateEntry> result = service.getFxHistory(Currency.USD, Currency.USD, from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(2, result.size());
         assertTrue(result.stream().allMatch(entry -> entry.rate().compareTo(BigDecimal.ONE) == 0));
@@ -188,7 +216,10 @@ class MarketDataServiceTest {
         when(store.upsertFxRates(any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
-        List<FxRateEntry> result = service.getFxHistory(Currency.EUR, Currency.USD, from, to).await().indefinitely();
+        List<FxRateEntry> result = service.getFxHistory(Currency.EUR, Currency.USD, from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(2, result.size());
         verify(provider).fetchFxHistory(Currency.EUR, Currency.USD, to, to);
@@ -204,7 +235,10 @@ class MarketDataServiceTest {
             return Uni.createFrom().item(quote);
         });
 
-        BigDecimal price = service.getSpotPrice("AAPL").await().indefinitely();
+        BigDecimal price = service.getSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, new BigDecimal("192").compareTo(price));
         verify(provider).fetchSpotPrice("AAPL");
@@ -221,7 +255,10 @@ class MarketDataServiceTest {
             return Uni.createFrom().item(quote);
         });
 
-        BigDecimal price = service.getSpotPrice("AAPL").await().indefinitely();
+        BigDecimal price = service.getSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, new BigDecimal("193").compareTo(price));
         verify(provider).fetchSpotPrice("AAPL");
@@ -236,7 +273,10 @@ class MarketDataServiceTest {
             return Uni.createFrom().item(quote);
         });
 
-        BigDecimal rate = service.getFxRate(Currency.EUR, Currency.USD).await().indefinitely();
+        BigDecimal rate = service.getFxRate(Currency.EUR, Currency.USD)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(0, new BigDecimal("1.15").compareTo(rate));
         verify(provider).fetchFxRate(Currency.EUR, Currency.USD);
@@ -258,7 +298,10 @@ class MarketDataServiceTest {
         when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
-        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to).await().indefinitely();
+        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(2, result.size());
         verify(provider).fetchPriceHistory("AAPL", from, to);
@@ -277,7 +320,10 @@ class MarketDataServiceTest {
         when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
-        service.getPriceHistory("AAPL", from, futureTo).await().indefinitely();
+        service.getPriceHistory("AAPL", from, futureTo)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         verify(store, never()).findPrices("AAPL", from, futureTo);
         verify(store, times(2)).findPrices("AAPL", from, today);
@@ -292,7 +338,10 @@ class MarketDataServiceTest {
         when(provider.fetchPriceHistory("AAPL", today, today)).thenReturn(Uni.createFrom().item(List.of()));
         when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
 
-        service.getPriceHistory("AAPL", today, today).await().indefinitely();
+        service.getPriceHistory("AAPL", today, today)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         verify(store, never()).recordCoverage(any(), any(), any(), any(), any());
     }
@@ -309,7 +358,10 @@ class MarketDataServiceTest {
         when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
-        service.getPriceHistory("AAPL", from, to).await().indefinitely();
+        service.getPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         verify(store).recordCoverage("PRICE", "AAPL", from, to, "twelvedata");
     }
@@ -328,7 +380,10 @@ class MarketDataServiceTest {
         when(store.upsertFxRates(any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
-        service.getFxHistory(Currency.EUR, Currency.USD, from, futureTo).await().indefinitely();
+        service.getFxHistory(Currency.EUR, Currency.USD, from, futureTo)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         verify(store, never()).findFxRates(Currency.EUR, Currency.USD, from, futureTo);
         verify(store, times(2)).findFxRates(Currency.EUR, Currency.USD, from, today);
@@ -342,7 +397,9 @@ class MarketDataServiceTest {
         });
 
         SpotQuote quote = service.setManualPrice("aapl", new BigDecimal("199.50"), Currency.USD)
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals("AAPL", quote.symbol());
         assertEquals(0, new BigDecimal("199.50").compareTo(quote.value()));

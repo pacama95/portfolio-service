@@ -2,6 +2,7 @@ package com.portfolio.adapters.outgoing.marketdata.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.portfolio.adapters.outgoing.marketdata.client.TwelveDataClient;
+import com.portfolio.core.application.service.CurrencyResolver;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.FxRateEntry;
 import com.portfolio.core.model.PriceHistoryEntry;
@@ -26,12 +27,15 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
 
     private final TwelveDataClient client;
     private final String apiKey;
+    private final CurrencyResolver currencyResolver;
 
     public TwelveDataProviderAdapter(
             @RestClient TwelveDataClient client,
-            @ConfigProperty(name = "application.market-data.twelve-data.api-key") String apiKey) {
+            @ConfigProperty(name = "application.market-data.twelve-data.api-key") String apiKey,
+            CurrencyResolver currencyResolver) {
         this.client = client;
         this.apiKey = apiKey;
+        this.currencyResolver = currencyResolver;
     }
 
     @Override
@@ -117,21 +121,32 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
             return entries;
         }
         OffsetDateTime now = OffsetDateTime.now();
-        Currency currency = Currency.USD;
         JsonNode meta = node.get("meta");
-        if (meta != null && meta.get("currency") != null) {
-            try {
-                currency = Currency.valueOf(meta.get("currency").asText());
-            } catch (IllegalArgumentException ignored) {
-                LOG.warnf("Twelve Data unknown currency for symbol=%s; defaulting to USD", symbol);
-            }
-        }
+        String rawCurrency = meta != null && meta.get("currency") != null ? meta.get("currency").asText() : null;
+        CurrencyResolver.Resolution resolution = resolveCurrency(symbol, rawCurrency);
         for (JsonNode value : values) {
             LocalDate date = LocalDate.parse(value.get("datetime").asText().substring(0, 10));
-            BigDecimal close = new BigDecimal(value.get("close").asText());
-            entries.add(new PriceHistoryEntry(symbol, date, close, close, currency, now));
+            BigDecimal close = new BigDecimal(value.get("close").asText()).multiply(resolution.multiplier());
+            entries.add(new PriceHistoryEntry(symbol, date, close, close, resolution.currency(), now));
         }
         return entries;
+    }
+
+    /**
+     * A provider that omits the currency entirely (no signal at all) defaults to USD; a
+     * provider that reports a currency code we don't recognize fails loudly instead of silently
+     * mislabeling the price (see {@link CurrencyResolver} for how codes, including minor-unit
+     * quotes like pence sterling, are resolved).
+     */
+    private CurrencyResolver.Resolution resolveCurrency(String symbol, String rawCurrency) {
+        if (rawCurrency == null || rawCurrency.isBlank()) {
+            return new CurrencyResolver.Resolution(Currency.USD, BigDecimal.ONE);
+        }
+        return currencyResolver.resolve(rawCurrency.trim())
+                .orElseThrow(() -> {
+                    LOG.errorf("Twelve Data unsupported currency symbol=%s currency=%s", symbol, rawCurrency);
+                    return new MarketDataProviderError.UnsupportedCurrency(symbol, rawCurrency);
+                });
     }
 
     private List<FxRateEntry> parseFxSeries(Currency base, Currency quote, JsonNode node) {

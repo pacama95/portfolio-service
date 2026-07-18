@@ -10,6 +10,7 @@ import com.portfolio.core.ports.incoming.GetPositionByTickerUseCase;
 import com.portfolio.core.ports.incoming.GetPositionsUseCase;
 import com.portfolio.core.ports.incoming.UpdateMarketPriceUseCase;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,10 @@ class PositionControllerTest {
                 .thenReturn(Uni.createFrom().item(new GetPositionsUseCase.Result.Success(List.of(position))));
         when(mapper.toResponse(position)).thenReturn(responseBody);
 
-        Response response = controller.listAll().await().indefinitely();
+        Response response = controller.listAll()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(List.of(responseBody), response.getEntity());
@@ -71,7 +75,10 @@ class PositionControllerTest {
                 .thenReturn(Uni.createFrom().item(new GetPositionsUseCase.Result.Success(List.of(position))));
         when(mapper.toResponse(position)).thenReturn(responseBody);
 
-        Response response = controller.listActive().await().indefinitely();
+        Response response = controller.listActive()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(List.of(responseBody), response.getEntity());
@@ -86,7 +93,10 @@ class PositionControllerTest {
                 .thenReturn(Uni.createFrom().item(new GetPositionByTickerUseCase.Result.Success(position)));
         when(mapper.toResponse(position)).thenReturn(responseBody);
 
-        Response response = controller.getByTicker("AAPL").await().indefinitely();
+        Response response = controller.getByTicker("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(responseBody, response.getEntity());
@@ -97,7 +107,10 @@ class PositionControllerTest {
         when(getPositionByTickerUseCase.execute(new GetPositionByTickerUseCase.Query(USER_ID, "MSFT")))
                 .thenReturn(Uni.createFrom().item(new GetPositionByTickerUseCase.Result.NotFound("MSFT")));
 
-        Response response = controller.getByTicker("MSFT").await().indefinitely();
+        Response response = controller.getByTicker("MSFT")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
     }
@@ -109,7 +122,10 @@ class PositionControllerTest {
         when(getPositionByTickerUseCase.execute(new GetPositionByTickerUseCase.Query(USER_ID, "AAPL")))
                 .thenReturn(Uni.createFrom().item(new GetPositionByTickerUseCase.Result.Success(position)));
 
-        Boolean exists = controller.exists("AAPL").await().indefinitely();
+        Boolean exists = controller.exists("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertTrue(exists);
     }
@@ -119,7 +135,10 @@ class PositionControllerTest {
         when(getPositionByTickerUseCase.execute(new GetPositionByTickerUseCase.Query(USER_ID, "MSFT")))
                 .thenReturn(Uni.createFrom().item(new GetPositionByTickerUseCase.Result.NotFound("MSFT")));
 
-        Boolean exists = controller.exists("MSFT").await().indefinitely();
+        Boolean exists = controller.exists("MSFT")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertFalse(exists);
     }
@@ -132,7 +151,10 @@ class PositionControllerTest {
         when(getPositionsUseCase.execute(GetPositionsUseCase.Query.all(USER_ID)))
                 .thenReturn(Uni.createFrom().item(new GetPositionsUseCase.Result.Success(List.of(first, second))));
 
-        Long count = controller.count().await().indefinitely();
+        Long count = controller.count()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(2L, count);
     }
@@ -144,7 +166,10 @@ class PositionControllerTest {
         when(getPositionsUseCase.execute(GetPositionsUseCase.Query.active(USER_ID)))
                 .thenReturn(Uni.createFrom().item(new GetPositionsUseCase.Result.Success(List.of(position))));
 
-        Long count = controller.countActive().await().indefinitely();
+        Long count = controller.countActive()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(1L, count);
     }
@@ -161,7 +186,10 @@ class PositionControllerTest {
                 .thenReturn(Uni.createFrom().item(new UpdateMarketPriceUseCase.Result.Success(position)));
         when(mapper.toResponse(position)).thenReturn(responseBody);
 
-        Response response = controller.updatePrice("AAPL", request).await().indefinitely();
+        Response response = controller.updatePrice("AAPL", request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(responseBody, response.getEntity());
@@ -176,7 +204,10 @@ class PositionControllerTest {
         when(updateMarketPriceUseCase.execute(command))
                 .thenReturn(Uni.createFrom().item(new UpdateMarketPriceUseCase.Result.NotFound("MSFT")));
 
-        Response response = controller.updatePrice("MSFT", request).await().indefinitely();
+        Response response = controller.updatePrice("MSFT", request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
     }
@@ -191,7 +222,10 @@ class PositionControllerTest {
 
         when(updateMarketPriceUseCase.execute(command)).thenReturn(Uni.createFrom().item(invalid));
 
-        Response response = controller.updatePrice("AAPL", request).await().indefinitely();
+        Response response = controller.updatePrice("AAPL", request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());

@@ -7,6 +7,7 @@ import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.PriceIngestionRunRepository;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -24,7 +25,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TriggerPriceIngestionServiceTest {
 
@@ -46,7 +46,9 @@ class TriggerPriceIngestionServiceTest {
     void givenNullFrom_whenExecute_thenInvalidRequest() {
         TriggerPriceIngestionUseCase.Result result = service.execute(
                 new TriggerPriceIngestionUseCase.Command(USER, null, TO, null, false))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(TriggerPriceIngestionUseCase.Result.InvalidRequest.class, result);
     }
@@ -60,7 +62,9 @@ class TriggerPriceIngestionServiceTest {
 
         TriggerPriceIngestionUseCase.Result result = service.execute(
                 new TriggerPriceIngestionUseCase.Command(USER, day, day, null, false))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(TriggerPriceIngestionUseCase.Result.Accepted.class, result);
     }
@@ -80,7 +84,10 @@ class TriggerPriceIngestionServiceTest {
         when(runRepository.save(any(IngestionRun.class))).thenAnswer(invocation ->
                 Uni.createFrom().item(invocation.getArgument(0, IngestionRun.class)));
 
-        service.runIngestion(initial, command).await().indefinitely();
+        service.runIngestion(initial, command)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         verify(transactionRepository).findDistinctTickers();
         verify(marketDataPort).getPriceHistory("AAPL", FROM, TO);
@@ -90,7 +97,9 @@ class TriggerPriceIngestionServiceTest {
     void givenNullTo_whenExecute_thenInvalidRequest() {
         TriggerPriceIngestionUseCase.Result result = service.execute(
                 new TriggerPriceIngestionUseCase.Command(USER, FROM, null, null, false))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(TriggerPriceIngestionUseCase.Result.InvalidRequest.class, result);
     }
@@ -100,7 +109,9 @@ class TriggerPriceIngestionServiceTest {
         TriggerPriceIngestionUseCase.Result result = service.execute(
                 new TriggerPriceIngestionUseCase.Command(
                         USER, LocalDate.of(2024, 2, 1), LocalDate.of(2024, 1, 1), null, false))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(TriggerPriceIngestionUseCase.Result.InvalidRequest.class, result);
     }
@@ -111,7 +122,9 @@ class TriggerPriceIngestionServiceTest {
 
         TriggerPriceIngestionUseCase.Result result = service.execute(
                 new TriggerPriceIngestionUseCase.Command(USER, FROM, TO, null, false))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(TriggerPriceIngestionUseCase.Result.Conflict.class, result);
     }
@@ -124,7 +137,9 @@ class TriggerPriceIngestionServiceTest {
 
         TriggerPriceIngestionUseCase.Result result = service.execute(
                 new TriggerPriceIngestionUseCase.Command(USER, FROM, TO, "aapl", false))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         TriggerPriceIngestionUseCase.Result.Accepted accepted =
                 assertInstanceOf(TriggerPriceIngestionUseCase.Result.Accepted.class, result);
@@ -154,7 +169,10 @@ class TriggerPriceIngestionServiceTest {
         when(runRepository.save(any(IngestionRun.class))).thenAnswer(invocation ->
                 Uni.createFrom().item(invocation.getArgument(0, IngestionRun.class)));
 
-        service.runIngestion(initial, command).await().indefinitely();
+        service.runIngestion(initial, command)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         ArgumentCaptor<IngestionRun> captor = ArgumentCaptor.forClass(IngestionRun.class);
         verify(runRepository, atLeastOnce()).save(captor.capture());
@@ -181,9 +199,10 @@ class TriggerPriceIngestionServiceTest {
         when(marketDataPort.getPriceHistory("AAPL", FROM, TO))
                 .thenReturn(Uni.createFrom().failure(new RuntimeException("provider down")));
 
-        RuntimeException failure = assertThrows(RuntimeException.class,
-                () -> service.runIngestion(initial, command).await().indefinitely());
-        assertEquals("provider down", failure.getMessage());
+        service.runIngestion(initial, command)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(RuntimeException.class, "provider down");
 
         ArgumentCaptor<IngestionRun> captor = ArgumentCaptor.forClass(IngestionRun.class);
         verify(runRepository, atLeastOnce()).save(captor.capture());

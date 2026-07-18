@@ -12,6 +12,7 @@ import com.portfolio.core.ports.incoming.UpdateMarketPriceUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -52,7 +53,9 @@ class UpdateMarketPriceServiceTest {
 
         UpdateMarketPriceUseCase.Result result = service.execute(
                 new UpdateMarketPriceUseCase.Command(USER, "aapl", new BigDecimal("175"), Currency.USD))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         UpdateMarketPriceUseCase.Result.Success success =
                 assertInstanceOf(UpdateMarketPriceUseCase.Result.Success.class, result);
@@ -64,7 +67,9 @@ class UpdateMarketPriceServiceTest {
     void givenNegativePrice_whenExecute_thenInvalidRequest() {
         UpdateMarketPriceUseCase.Result result = service.execute(
                 new UpdateMarketPriceUseCase.Command(USER, "AAPL", new BigDecimal("-1"), Currency.USD))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(UpdateMarketPriceUseCase.Result.InvalidRequest.class, result);
     }
@@ -73,7 +78,9 @@ class UpdateMarketPriceServiceTest {
     void givenNullPrice_whenExecute_thenInvalidRequest() {
         UpdateMarketPriceUseCase.Result result = service.execute(
                 new UpdateMarketPriceUseCase.Command(USER, "AAPL", null, Currency.USD))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(UpdateMarketPriceUseCase.Result.InvalidRequest.class, result);
     }
@@ -87,7 +94,9 @@ class UpdateMarketPriceServiceTest {
 
         UpdateMarketPriceUseCase.Result result = service.execute(
                 new UpdateMarketPriceUseCase.Command(USER, "AAPL", new BigDecimal("100"), Currency.USD))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(UpdateMarketPriceUseCase.Result.NotFound.class, result);
     }
@@ -98,7 +107,9 @@ class UpdateMarketPriceServiceTest {
 
         UpdateMarketPriceUseCase.Result result = service.execute(
                 new UpdateMarketPriceUseCase.Command(USER, "AAPL", new BigDecimal("100"), Currency.USD))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         UpdateMarketPriceUseCase.Result.NotFound notFound =
                 assertInstanceOf(UpdateMarketPriceUseCase.Result.NotFound.class, result);

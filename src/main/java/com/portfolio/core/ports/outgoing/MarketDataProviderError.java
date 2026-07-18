@@ -24,4 +24,10 @@ public sealed interface MarketDataProviderError {
             super("Provider response missing '" + field + "' for " + symbol);
         }
     }
+
+    final class UnsupportedCurrency extends ProviderException {
+        public UnsupportedCurrency(String symbol, String currencyCode) {
+            super("Provider returned unsupported currency '" + currencyCode + "' for " + symbol);
+        }
+    }
 }

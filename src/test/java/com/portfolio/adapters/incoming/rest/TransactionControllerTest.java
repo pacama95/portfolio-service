@@ -17,6 +17,7 @@ import com.portfolio.core.ports.incoming.GetTransactionUseCase;
 import com.portfolio.core.ports.incoming.SearchTransactionsUseCase;
 import com.portfolio.core.ports.incoming.UpdateTransactionUseCase;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,7 +75,10 @@ class TransactionControllerTest {
                 .thenReturn(Uni.createFrom().item(new CreateTransactionUseCase.Result.Success(transaction)));
         when(mapper.toResponse(transaction)).thenReturn(responseBody);
 
-        Response response = controller.create(request).await().indefinitely();
+        Response response = controller.create(request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
         assertEquals(responseBody, response.getEntity());
@@ -90,7 +94,10 @@ class TransactionControllerTest {
         when(mapper.toCreateCommand(USER_ID, request)).thenReturn(command);
         when(createTransactionUseCase.execute(command)).thenReturn(Uni.createFrom().item(invalid));
 
-        Response response = controller.create(request).await().indefinitely();
+        Response response = controller.create(request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());
@@ -106,7 +113,10 @@ class TransactionControllerTest {
                 .thenReturn(Uni.createFrom().item(new GetTransactionUseCase.Result.Success(transaction)));
         when(mapper.toResponse(transaction)).thenReturn(responseBody);
 
-        Response response = controller.getById(id).await().indefinitely();
+        Response response = controller.getById(id)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(responseBody, response.getEntity());
@@ -119,7 +129,10 @@ class TransactionControllerTest {
         when(getTransactionUseCase.execute(new GetTransactionUseCase.Query(USER_ID, id)))
                 .thenReturn(Uni.createFrom().item(new GetTransactionUseCase.Result.NotFound(id)));
 
-        Response response = controller.getById(id).await().indefinitely();
+        Response response = controller.getById(id)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
     }
@@ -133,7 +146,10 @@ class TransactionControllerTest {
                 .thenReturn(Uni.createFrom().item(new SearchTransactionsUseCase.Result.Success(List.of(transaction))));
         when(mapper.toResponse(transaction)).thenReturn(responseBody);
 
-        Response response = controller.listAll().await().indefinitely();
+        Response response = controller.listAll()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(List.of(responseBody), response.getEntity());
@@ -148,7 +164,10 @@ class TransactionControllerTest {
                 .thenReturn(Uni.createFrom().item(new SearchTransactionsUseCase.Result.Success(List.of(transaction))));
         when(mapper.toResponse(transaction)).thenReturn(responseBody);
 
-        Response response = controller.listByTicker("AAPL").await().indefinitely();
+        Response response = controller.listByTicker("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(List.of(responseBody), response.getEntity());
@@ -168,7 +187,9 @@ class TransactionControllerTest {
         when(mapper.toResponse(transaction)).thenReturn(responseBody);
 
         Response response = controller.search("AAPL", TransactionType.BUY, from, to, TransactionSortOrder.ASC)
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(List.of(responseBody), response.getEntity());
@@ -187,7 +208,10 @@ class TransactionControllerTest {
                 .thenReturn(Uni.createFrom().item(new UpdateTransactionUseCase.Result.Success(transaction)));
         when(mapper.toResponse(transaction)).thenReturn(responseBody);
 
-        Response response = controller.update(id, request).await().indefinitely();
+        Response response = controller.update(id, request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(responseBody, response.getEntity());
@@ -203,7 +227,10 @@ class TransactionControllerTest {
         when(updateTransactionUseCase.execute(command))
                 .thenReturn(Uni.createFrom().item(new UpdateTransactionUseCase.Result.NotFound(id)));
 
-        Response response = controller.update(id, request).await().indefinitely();
+        Response response = controller.update(id, request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
     }
@@ -219,7 +246,10 @@ class TransactionControllerTest {
         when(mapper.toUpdateCommand(USER_ID, id, request)).thenReturn(command);
         when(updateTransactionUseCase.execute(command)).thenReturn(Uni.createFrom().item(invalid));
 
-        Response response = controller.update(id, request).await().indefinitely();
+        Response response = controller.update(id, request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());
@@ -232,7 +262,10 @@ class TransactionControllerTest {
         when(deleteTransactionUseCase.execute(new DeleteTransactionUseCase.Command(USER_ID, id)))
                 .thenReturn(Uni.createFrom().item(new DeleteTransactionUseCase.Result.Success(id)));
 
-        Response response = controller.delete(id).await().indefinitely();
+        Response response = controller.delete(id)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
     }
@@ -244,7 +277,10 @@ class TransactionControllerTest {
         when(deleteTransactionUseCase.execute(new DeleteTransactionUseCase.Command(USER_ID, id)))
                 .thenReturn(Uni.createFrom().item(new DeleteTransactionUseCase.Result.NotFound(id)));
 
-        Response response = controller.delete(id).await().indefinitely();
+        Response response = controller.delete(id)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
     }
@@ -254,7 +290,10 @@ class TransactionControllerTest {
         when(countTransactionsUseCase.execute(CountTransactionsUseCase.Query.all(USER_ID)))
                 .thenReturn(Uni.createFrom().item(new CountTransactionsUseCase.Result.Success(7L)));
 
-        Long count = controller.count().await().indefinitely();
+        Long count = controller.count()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(7L, count);
     }
@@ -264,7 +303,10 @@ class TransactionControllerTest {
         when(countTransactionsUseCase.execute(CountTransactionsUseCase.Query.byTicker(USER_ID, "AAPL")))
                 .thenReturn(Uni.createFrom().item(new CountTransactionsUseCase.Result.Success(3L)));
 
-        Long count = controller.countByTicker("AAPL").await().indefinitely();
+        Long count = controller.countByTicker("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(3L, count);
     }
@@ -278,7 +320,10 @@ class TransactionControllerTest {
         when(createTransactionUseCase.execute(command))
                 .thenReturn(Uni.createFrom().item(new CreateTransactionUseCase.Result.InvalidRequest("x")));
 
-        controller.create(request).await().indefinitely();
+        controller.create(request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         verify(userContext).requireUserId();
         verify(mapper).toCreateCommand(eq(USER_ID), eq(request));

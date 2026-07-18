@@ -8,6 +8,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.UpdateTransactionUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -49,7 +50,10 @@ class UpdateTransactionServiceTest {
 
         UpdateTransactionUseCase.Result result = service.execute(new UpdateTransactionUseCase.Command(
                 USER, id, null, null, null, new BigDecimal("120"), null, null, null, "updated notes",
-                null, null, null, null, null, null)).await().indefinitely();
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         UpdateTransactionUseCase.Result.Success success =
                 assertInstanceOf(UpdateTransactionUseCase.Result.Success.class, result);
@@ -66,7 +70,10 @@ class UpdateTransactionServiceTest {
 
         UpdateTransactionUseCase.Result result = service.execute(new UpdateTransactionUseCase.Command(
                 USER, id, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null)).await().indefinitely();
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(UpdateTransactionUseCase.Result.NotFound.class, result);
     }
@@ -77,7 +84,10 @@ class UpdateTransactionServiceTest {
 
         UpdateTransactionUseCase.Result result = service.execute(new UpdateTransactionUseCase.Command(
                 USER, id, null, null, BigDecimal.ZERO, null, null, null, null, null,
-                null, null, null, null, null, null)).await().indefinitely();
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(UpdateTransactionUseCase.Result.InvalidRequest.class, result);
     }
@@ -88,7 +98,10 @@ class UpdateTransactionServiceTest {
 
         UpdateTransactionUseCase.Result result = service.execute(new UpdateTransactionUseCase.Command(
                 USER, id, null, null, null, new BigDecimal("-1"), null, null, null, null,
-                null, null, null, null, null, null)).await().indefinitely();
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(UpdateTransactionUseCase.Result.InvalidRequest.class, result);
     }
@@ -105,7 +118,10 @@ class UpdateTransactionServiceTest {
 
         service.execute(new UpdateTransactionUseCase.Command(
                 USER, id, "msft", null, null, null, null, null, null, null,
-                null, null, null, null, null, null)).await().indefinitely();
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
         verify(repository).save(captor.capture());
@@ -124,7 +140,10 @@ class UpdateTransactionServiceTest {
 
         service.execute(new UpdateTransactionUseCase.Command(
                 USER, id, "  msft  ", null, null, null, null, null, null, null,
-                null, null, null, null, null, null)).await().indefinitely();
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
         verify(repository).save(captor.capture());
@@ -139,7 +158,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, new BigDecimal("120"), null, null, null, null,
-                        null, null, null, null, null, null)).await().indefinitely());
+                        null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals(0, new BigDecimal("10").compareTo(success.transaction().quantity()));
     }
@@ -152,7 +174,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, TransactionType.SELL, null, null, null, null, null, null,
-                        null, null, null, null, null, null)).await().indefinitely());
+                        null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals(TransactionType.SELL, success.transaction().transactionType());
     }
@@ -165,7 +190,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, new BigDecimal("7"), null, null, null, null, null,
-                        null, null, null, null, null, null)).await().indefinitely());
+                        null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals(0, new BigDecimal("7").compareTo(success.transaction().quantity()));
     }
@@ -178,7 +206,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, null, new BigDecimal("3"), null, null, null,
-                        null, null, null, null, null, null)).await().indefinitely());
+                        null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals(0, new BigDecimal("3").compareTo(success.transaction().fees()));
     }
@@ -191,7 +222,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, null, null, Currency.EUR, null, null,
-                        null, null, null, null, null, null)).await().indefinitely());
+                        null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals(Currency.EUR, success.transaction().currency());
     }
@@ -205,7 +239,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, null, null, null, newDate, null,
-                        null, null, null, null, null, null)).await().indefinitely());
+                        null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals(newDate, success.transaction().transactionDate());
     }
@@ -218,7 +255,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, null, null, null, null, null,
-                        true, null, null, null, null, null)).await().indefinitely());
+                        true, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals(true, success.transaction().fractional());
     }
@@ -231,7 +271,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, null, null, null, null, null,
-                        null, new BigDecimal("0.00000002"), null, null, null, null)).await().indefinitely());
+                        null, new BigDecimal("0.00000002"), null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals(0, new BigDecimal("0.00000002").compareTo(success.transaction().fractionalMultiplier()));
     }
@@ -244,7 +287,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, null, null, null, null, null,
-                        null, null, Currency.GBP, null, null, null)).await().indefinitely());
+                        null, null, Currency.GBP, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals(Currency.GBP, success.transaction().commissionCurrency());
     }
@@ -257,7 +303,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, null, null, null, null, null,
-                        null, null, null, "LSE", null, null)).await().indefinitely());
+                        null, null, null, "LSE", null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals("LSE", success.transaction().exchange());
     }
@@ -270,7 +319,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, null, null, null, null, null,
-                        null, null, null, null, "GB", null)).await().indefinitely());
+                        null, null, null, null, "GB", null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals("GB", success.transaction().country());
     }
@@ -283,7 +335,10 @@ class UpdateTransactionServiceTest {
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
                 service.execute(update(id, null, null, null, null, null, null, null, null,
-                        null, null, null, null, null, "Updated Corp")).await().indefinitely());
+                        null, null, null, null, null, "Updated Corp"))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
 
         assertEquals("Updated Corp", success.transaction().companyName());
     }

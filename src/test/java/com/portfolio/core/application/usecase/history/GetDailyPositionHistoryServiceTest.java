@@ -9,6 +9,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.GetDailyPositionHistoryUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -41,7 +42,9 @@ class GetDailyPositionHistoryServiceTest {
     void givenNullTo_whenExecute_thenInvalidRequest() {
         GetDailyPositionHistoryUseCase.Result result = service.execute(
                 new GetDailyPositionHistoryUseCase.Query(USER, LocalDate.of(2024, 1, 1), null, null))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetDailyPositionHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -55,7 +58,9 @@ class GetDailyPositionHistoryServiceTest {
         GetDailyPositionHistoryUseCase.Result result = service.execute(
                 new GetDailyPositionHistoryUseCase.Query(
                         USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1), null))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetDailyPositionHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetDailyPositionHistoryUseCase.Result.Success.class, result);
@@ -66,7 +71,9 @@ class GetDailyPositionHistoryServiceTest {
     void givenNullFrom_whenExecute_thenInvalidRequest() {
         GetDailyPositionHistoryUseCase.Result result = service.execute(
                 new GetDailyPositionHistoryUseCase.Query(USER, null, LocalDate.of(2024, 1, 31), null))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetDailyPositionHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -76,7 +83,9 @@ class GetDailyPositionHistoryServiceTest {
         GetDailyPositionHistoryUseCase.Result result = service.execute(
                 new GetDailyPositionHistoryUseCase.Query(
                         USER, LocalDate.of(2024, 2, 1), LocalDate.of(2024, 1, 1), null))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetDailyPositionHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -91,7 +100,9 @@ class GetDailyPositionHistoryServiceTest {
         GetDailyPositionHistoryUseCase.Result result = service.execute(
                 new GetDailyPositionHistoryUseCase.Query(
                         USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31), null))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetDailyPositionHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetDailyPositionHistoryUseCase.Result.Success.class, result);
@@ -107,7 +118,9 @@ class GetDailyPositionHistoryServiceTest {
         GetDailyPositionHistoryUseCase.Result result = service.execute(
                 new GetDailyPositionHistoryUseCase.Query(
                         USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31), "  aapl "))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetDailyPositionHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetDailyPositionHistoryUseCase.Result.Success.class, result);

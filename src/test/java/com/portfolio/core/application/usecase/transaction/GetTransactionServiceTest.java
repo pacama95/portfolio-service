@@ -8,6 +8,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.GetTransactionUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -41,7 +42,9 @@ class GetTransactionServiceTest {
         when(repository.findById(USER, id)).thenReturn(Uni.createFrom().item(Optional.of(transaction)));
 
         GetTransactionUseCase.Result result = service.execute(new GetTransactionUseCase.Query(USER, id))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetTransactionUseCase.Result.Success success =
                 assertInstanceOf(GetTransactionUseCase.Result.Success.class, result);
@@ -55,7 +58,9 @@ class GetTransactionServiceTest {
         when(repository.findById(USER, id)).thenReturn(Uni.createFrom().item(Optional.empty()));
 
         GetTransactionUseCase.Result result = service.execute(new GetTransactionUseCase.Query(USER, id))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetTransactionUseCase.Result.NotFound notFound =
                 assertInstanceOf(GetTransactionUseCase.Result.NotFound.class, result);

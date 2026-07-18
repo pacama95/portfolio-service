@@ -8,6 +8,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.CreateTransactionUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -57,7 +58,10 @@ class CreateTransactionServiceTest {
                 "US",
                 "Apple");
 
-        CreateTransactionUseCase.Result result = service.execute(command).await().indefinitely();
+        CreateTransactionUseCase.Result result = service.execute(command)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         CreateTransactionUseCase.Result.Success success =
                 assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);
@@ -72,7 +76,9 @@ class CreateTransactionServiceTest {
     @Test
     void givenNullTicker_whenExecute_thenInvalidRequest() {
         CreateTransactionUseCase.Result result = service.execute(validCommandBuilder().ticker(null).build())
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, result);
     }
@@ -80,7 +86,9 @@ class CreateTransactionServiceTest {
     @Test
     void givenBlankTicker_whenExecute_thenInvalidRequest() {
         CreateTransactionUseCase.Result result = service.execute(validCommandBuilder().ticker("  ").build())
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, result);
     }
@@ -88,18 +96,27 @@ class CreateTransactionServiceTest {
     @Test
     void givenNonPositiveQuantity_whenExecute_thenInvalidRequest() {
         CreateTransactionUseCase.Result zeroQty = service.execute(
-                validCommandBuilder().quantity(BigDecimal.ZERO).build()).await().indefinitely();
+                validCommandBuilder().quantity(BigDecimal.ZERO).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, zeroQty);
 
         CreateTransactionUseCase.Result negativeQty = service.execute(
-                validCommandBuilder().quantity(new BigDecimal("-1")).build()).await().indefinitely();
+                validCommandBuilder().quantity(new BigDecimal("-1")).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, negativeQty);
     }
 
     @Test
     void givenNegativePrice_whenExecute_thenInvalidRequest() {
         CreateTransactionUseCase.Result result = service.execute(
-                validCommandBuilder().price(new BigDecimal("-0.01")).build()).await().indefinitely();
+                validCommandBuilder().price(new BigDecimal("-0.01")).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, result);
     }
@@ -107,19 +124,31 @@ class CreateTransactionServiceTest {
     @Test
     void givenMissingRequiredFields_whenExecute_thenInvalidRequest() {
         CreateTransactionUseCase.Result nullType = service.execute(
-                validCommandBuilder().transactionType(null).build()).await().indefinitely();
+                validCommandBuilder().transactionType(null).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, nullType);
 
         CreateTransactionUseCase.Result nullAsset = service.execute(
-                validCommandBuilder().assetType(null).build()).await().indefinitely();
+                validCommandBuilder().assetType(null).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, nullAsset);
 
         CreateTransactionUseCase.Result nullCurrency = service.execute(
-                validCommandBuilder().currency(null).build()).await().indefinitely();
+                validCommandBuilder().currency(null).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, nullCurrency);
 
         CreateTransactionUseCase.Result nullDate = service.execute(
-                validCommandBuilder().transactionDate(null).build()).await().indefinitely();
+                validCommandBuilder().transactionDate(null).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, nullDate);
     }
 
@@ -131,7 +160,10 @@ class CreateTransactionServiceTest {
         });
 
         CreateTransactionUseCase.Result result = service.execute(
-                validCommandBuilder().price(BigDecimal.ZERO).build()).await().indefinitely();
+                validCommandBuilder().price(BigDecimal.ZERO).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         CreateTransactionUseCase.Result.Success success =
                 assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);
@@ -141,7 +173,10 @@ class CreateTransactionServiceTest {
     @Test
     void givenNullQuantity_whenExecute_thenInvalidRequest() {
         CreateTransactionUseCase.Result result = service.execute(
-                validCommandBuilder().quantity(null).build()).await().indefinitely();
+                validCommandBuilder().quantity(null).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, result);
     }
@@ -149,7 +184,10 @@ class CreateTransactionServiceTest {
     @Test
     void givenNullPrice_whenExecute_thenInvalidRequest() {
         CreateTransactionUseCase.Result result = service.execute(
-                validCommandBuilder().price(null).build()).await().indefinitely();
+                validCommandBuilder().price(null).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, result);
     }
@@ -162,7 +200,9 @@ class CreateTransactionServiceTest {
         });
 
         CreateTransactionUseCase.Result result = service.execute(validCommandBuilder().fees(null).build())
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         CreateTransactionUseCase.Result.Success success =
                 assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);
@@ -177,7 +217,9 @@ class CreateTransactionServiceTest {
         });
 
         CreateTransactionUseCase.Result result = service.execute(validCommandBuilder().fractional(null).build())
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         CreateTransactionUseCase.Result.Success success =
                 assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);
@@ -192,7 +234,10 @@ class CreateTransactionServiceTest {
         });
 
         CreateTransactionUseCase.Result result = service.execute(
-                validCommandBuilder().fractionalMultiplier(null).build()).await().indefinitely();
+                validCommandBuilder().fractionalMultiplier(null).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         CreateTransactionUseCase.Result.Success success =
                 assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);

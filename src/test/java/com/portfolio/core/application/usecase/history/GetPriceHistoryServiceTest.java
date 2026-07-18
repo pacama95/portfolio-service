@@ -6,6 +6,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.GetPriceHistoryUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -37,7 +38,9 @@ class GetPriceHistoryServiceTest {
     void givenNullTo_whenExecute_thenInvalidRequest() {
         GetPriceHistoryUseCase.Result result = service.execute(
                 new GetPriceHistoryUseCase.Query(USER, List.of("AAPL"), FROM, null))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetPriceHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -49,7 +52,9 @@ class GetPriceHistoryServiceTest {
 
         GetPriceHistoryUseCase.Result result = service.execute(
                 new GetPriceHistoryUseCase.Query(USER, List.of("AAPL"), FROM, FROM))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPriceHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetPriceHistoryUseCase.Result.Success.class, result);
@@ -60,7 +65,9 @@ class GetPriceHistoryServiceTest {
     void givenNullSymbols_whenExecute_thenInvalidRequest() {
         GetPriceHistoryUseCase.Result result = service.execute(
                 new GetPriceHistoryUseCase.Query(USER, null, FROM, TO))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetPriceHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -69,7 +76,9 @@ class GetPriceHistoryServiceTest {
     void givenNullFrom_whenExecute_thenInvalidRequest() {
         GetPriceHistoryUseCase.Result result = service.execute(
                 new GetPriceHistoryUseCase.Query(USER, List.of("AAPL"), null, TO))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetPriceHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -79,7 +88,9 @@ class GetPriceHistoryServiceTest {
         GetPriceHistoryUseCase.Result result = service.execute(
                 new GetPriceHistoryUseCase.Query(
                         USER, List.of("AAPL"), LocalDate.of(2024, 2, 1), LocalDate.of(2024, 1, 1)))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetPriceHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -88,7 +99,9 @@ class GetPriceHistoryServiceTest {
     void givenEmptySymbols_whenExecute_thenInvalidRequest() {
         GetPriceHistoryUseCase.Result result = service.execute(
                 new GetPriceHistoryUseCase.Query(USER, List.of(), FROM, TO))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetPriceHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -102,7 +115,9 @@ class GetPriceHistoryServiceTest {
 
         GetPriceHistoryUseCase.Result result = service.execute(
                 new GetPriceHistoryUseCase.Query(USER, List.of("AAPL", "MSFT"), FROM, TO))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPriceHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetPriceHistoryUseCase.Result.Success.class, result);

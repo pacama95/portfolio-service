@@ -8,5 +8,10 @@ public enum Currency {
     EUR,
     GBP,
     CAD,
-    JPY
+    JPY,
+    CHF,
+    AUD,
+    HKD,
+    SEK,
+    NOK
 }

@@ -4,6 +4,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.DeleteTransactionUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -29,7 +30,10 @@ class DeleteTransactionServiceTest {
         when(repository.deleteById(UserId.of("u1"), id)).thenReturn(Uni.createFrom().item(true));
 
         DeleteTransactionUseCase.Result result = service.execute(
-                new DeleteTransactionUseCase.Command(UserId.of("u1"), id)).await().indefinitely();
+                new DeleteTransactionUseCase.Command(UserId.of("u1"), id))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(DeleteTransactionUseCase.Result.Success.class, result);
     }
@@ -40,7 +44,10 @@ class DeleteTransactionServiceTest {
         when(repository.deleteById(UserId.of("u1"), id)).thenReturn(Uni.createFrom().item(false));
 
         DeleteTransactionUseCase.Result result = service.execute(
-                new DeleteTransactionUseCase.Command(UserId.of("u1"), id)).await().indefinitely();
+                new DeleteTransactionUseCase.Command(UserId.of("u1"), id))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(DeleteTransactionUseCase.Result.NotFound.class, result);
     }

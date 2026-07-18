@@ -9,6 +9,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.SearchTransactionsUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -47,7 +48,9 @@ class SearchTransactionsServiceTest {
 
         SearchTransactionsUseCase.Result result = service.execute(
                 new SearchTransactionsUseCase.Query(USER, null, null, null, null, null))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         SearchTransactionsUseCase.Result.Success success =
                 assertInstanceOf(SearchTransactionsUseCase.Result.Success.class, result);
@@ -66,7 +69,10 @@ class SearchTransactionsServiceTest {
                 .thenReturn(Uni.createFrom().item(List.of(tx)));
 
         SearchTransactionsUseCase.Result result = service.execute(
-                SearchTransactionsUseCase.Query.byTicker(USER, "AAPL")).await().indefinitely();
+                SearchTransactionsUseCase.Query.byTicker(USER, "AAPL"))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         SearchTransactionsUseCase.Result.Success success =
                 assertInstanceOf(SearchTransactionsUseCase.Result.Success.class, result);

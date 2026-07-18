@@ -4,6 +4,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.GetPriceIngestionRunUseCase;
 import com.portfolio.core.ports.incoming.TriggerPriceIngestionUseCase;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,10 @@ class PriceIngestionControllerTest {
         when(triggerPriceIngestionUseCase.execute(command))
                 .thenReturn(Uni.createFrom().item(new TriggerPriceIngestionUseCase.Result.Accepted(runId)));
 
-        Response response = controller.trigger(request).await().indefinitely();
+        Response response = controller.trigger(request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.ACCEPTED.getStatusCode(), response.getStatus());
         assertEquals(Map.of("runId", runId), response.getEntity());
@@ -77,7 +81,10 @@ class PriceIngestionControllerTest {
 
         when(triggerPriceIngestionUseCase.execute(command)).thenReturn(Uni.createFrom().item(conflict));
 
-        Response response = controller.trigger(request).await().indefinitely();
+        Response response = controller.trigger(request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
         assertEquals(conflict, response.getEntity());
@@ -98,7 +105,10 @@ class PriceIngestionControllerTest {
 
         when(triggerPriceIngestionUseCase.execute(command)).thenReturn(Uni.createFrom().item(invalid));
 
-        Response response = controller.trigger(request).await().indefinitely();
+        Response response = controller.trigger(request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());
@@ -118,7 +128,10 @@ class PriceIngestionControllerTest {
         when(triggerPriceIngestionUseCase.execute(Mockito.any()))
                 .thenReturn(Uni.createFrom().item(new TriggerPriceIngestionUseCase.Result.InvalidRequest("x")));
 
-        controller.trigger(request).await().indefinitely();
+        controller.trigger(request)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         verify(triggerPriceIngestionUseCase).execute(commandCaptor.capture());
         assertFalse(commandCaptor.getValue().includeBackfill());
@@ -131,7 +144,10 @@ class PriceIngestionControllerTest {
         when(getPriceIngestionRunUseCase.execute(new GetPriceIngestionRunUseCase.Query(USER_ID)))
                 .thenReturn(Uni.createFrom().item(new GetPriceIngestionRunUseCase.Result.Success(status)));
 
-        Response response = controller.latest().await().indefinitely();
+        Response response = controller.latest()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(status, response.getEntity());
@@ -142,7 +158,10 @@ class PriceIngestionControllerTest {
         when(getPriceIngestionRunUseCase.execute(new GetPriceIngestionRunUseCase.Query(USER_ID)))
                 .thenReturn(Uni.createFrom().item(new GetPriceIngestionRunUseCase.Result.NotFound()));
 
-        Response response = controller.latest().await().indefinitely();
+        Response response = controller.latest()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
     }

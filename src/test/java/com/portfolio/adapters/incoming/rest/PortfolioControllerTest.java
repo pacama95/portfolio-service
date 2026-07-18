@@ -7,6 +7,7 @@ import com.portfolio.core.model.PortfolioSummary;
 import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.GetPortfolioSummaryUseCase;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,7 +43,10 @@ class PortfolioControllerTest {
                 .thenReturn(Uni.createFrom().item(new GetPortfolioSummaryUseCase.Result.Success(summary)));
         when(mapper.toResponse(summary)).thenReturn(responseBody);
 
-        Response response = controller.summary().await().indefinitely();
+        Response response = controller.summary()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(responseBody, response.getEntity());
@@ -57,7 +61,10 @@ class PortfolioControllerTest {
                 .thenReturn(Uni.createFrom().item(new GetPortfolioSummaryUseCase.Result.Success(summary)));
         when(mapper.toResponse(summary)).thenReturn(responseBody);
 
-        Response response = controller.summaryActive().await().indefinitely();
+        Response response = controller.summaryActive()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(responseBody, response.getEntity());

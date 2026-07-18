@@ -85,7 +85,7 @@ public class TransactionEntity {
 
     public enum TransactionTypeDb { BUY, SELL, DIVIDEND, SPLIT }
 
-    public enum CurrencyDb { USD, EUR, GBP, CAD, JPY }
+    public enum CurrencyDb { USD, EUR, GBP, CAD, JPY, CHF, AUD, HKD, SEK, NOK }
 
     public enum AssetTypeDb {
         AMERICAN_DEPOSITARY_RECEIPT,

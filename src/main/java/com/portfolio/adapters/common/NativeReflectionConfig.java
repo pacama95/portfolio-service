@@ -13,7 +13,6 @@ import com.portfolio.core.model.CapitalFlowKind;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.DailyPositionSnapshot;
 import com.portfolio.core.model.DailyValuation;
-import com.portfolio.core.model.Exchange;
 import com.portfolio.core.model.FxRateEntry;
 import com.portfolio.core.model.IngestionRun;
 import com.portfolio.core.model.PerformanceInputs;
@@ -57,7 +56,6 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
         SpotQuoteKind.class,
         QuoteSource.class,
         PerformanceInputs.class,
-        Exchange.class,
         IngestionRun.class,
         IngestionRun.Status.class,
         UserId.class,

@@ -10,6 +10,7 @@ import com.portfolio.core.ports.incoming.GetPositionByTickerUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -46,7 +47,10 @@ class GetPositionByTickerServiceTest {
         when(marketDataPort.getSpotPrice("AAPL")).thenReturn(Uni.createFrom().item(new BigDecimal("150")));
 
         GetPositionByTickerUseCase.Result result = service.execute(
-                new GetPositionByTickerUseCase.Query(USER, "aapl")).await().indefinitely();
+                new GetPositionByTickerUseCase.Query(USER, "aapl"))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPositionByTickerUseCase.Result.Success success =
                 assertInstanceOf(GetPositionByTickerUseCase.Result.Success.class, result);
@@ -61,7 +65,10 @@ class GetPositionByTickerServiceTest {
         when(transactionRepository.findByTicker(USER, "AAPL")).thenReturn(Uni.createFrom().item(List.of()));
 
         GetPositionByTickerUseCase.Result result = service.execute(
-                new GetPositionByTickerUseCase.Query(USER, "AAPL")).await().indefinitely();
+                new GetPositionByTickerUseCase.Query(USER, "AAPL"))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPositionByTickerUseCase.Result.NotFound notFound =
                 assertInstanceOf(GetPositionByTickerUseCase.Result.NotFound.class, result);
@@ -76,7 +83,10 @@ class GetPositionByTickerServiceTest {
         when(transactionRepository.findByTicker(USER, "AAPL")).thenReturn(Uni.createFrom().item(txs));
 
         GetPositionByTickerUseCase.Result result = service.execute(
-                new GetPositionByTickerUseCase.Query(USER, "AAPL")).await().indefinitely();
+                new GetPositionByTickerUseCase.Query(USER, "AAPL"))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPositionByTickerUseCase.Result.NotFound notFound =
                 assertInstanceOf(GetPositionByTickerUseCase.Result.NotFound.class, result);
@@ -90,7 +100,10 @@ class GetPositionByTickerServiceTest {
         when(transactionRepository.findByTicker(USER, "MSFT")).thenReturn(Uni.createFrom().item(txs));
         when(marketDataPort.getSpotPrice("MSFT")).thenReturn(Uni.createFrom().item(new BigDecimal("210")));
 
-        service.execute(new GetPositionByTickerUseCase.Query(USER, " msft ")).await().indefinitely();
+        service.execute(new GetPositionByTickerUseCase.Query(USER, " msft "))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         Mockito.verify(transactionRepository).findByTicker(USER, "MSFT");
     }
@@ -104,7 +117,10 @@ class GetPositionByTickerServiceTest {
                 .thenReturn(Uni.createFrom().failure(new RuntimeException("spot unavailable")));
 
         GetPositionByTickerUseCase.Result result = service.execute(
-                new GetPositionByTickerUseCase.Query(USER, "AAPL")).await().indefinitely();
+                new GetPositionByTickerUseCase.Query(USER, "AAPL"))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPositionByTickerUseCase.Result.Success success =
                 assertInstanceOf(GetPositionByTickerUseCase.Result.Success.class, result);

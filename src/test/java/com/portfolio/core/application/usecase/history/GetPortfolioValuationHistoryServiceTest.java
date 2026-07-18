@@ -3,6 +3,7 @@ package com.portfolio.core.application.usecase.history;
 import com.portfolio.core.model.AssetType;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.DailyValuation;
+import com.portfolio.core.model.FxRateEntry;
 import com.portfolio.core.model.PriceHistoryEntry;
 import com.portfolio.core.model.Transaction;
 import com.portfolio.core.model.TransactionType;
@@ -11,6 +12,7 @@ import com.portfolio.core.ports.incoming.GetPortfolioValuationHistoryUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -44,7 +46,9 @@ class GetPortfolioValuationHistoryServiceTest {
     void givenNullFrom_whenExecute_thenInvalidRequest() {
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
                 new GetPortfolioValuationHistoryUseCase.Query(USER, null, LocalDate.of(2024, 1, 31)))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -59,7 +63,9 @@ class GetPortfolioValuationHistoryServiceTest {
 
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
                 new GetPortfolioValuationHistoryUseCase.Query(USER, date, date))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioValuationHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
@@ -70,7 +76,9 @@ class GetPortfolioValuationHistoryServiceTest {
     void givenNullTo_whenExecute_thenInvalidRequest() {
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
                 new GetPortfolioValuationHistoryUseCase.Query(USER, LocalDate.of(2024, 1, 1), null))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -80,7 +88,9 @@ class GetPortfolioValuationHistoryServiceTest {
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
                 new GetPortfolioValuationHistoryUseCase.Query(
                         USER, LocalDate.of(2024, 2, 1), LocalDate.of(2024, 1, 1)))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.InvalidRequest.class, result);
     }
@@ -92,7 +102,9 @@ class GetPortfolioValuationHistoryServiceTest {
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
                 new GetPortfolioValuationHistoryUseCase.Query(
                         USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31)))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioValuationHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
@@ -109,7 +121,9 @@ class GetPortfolioValuationHistoryServiceTest {
 
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
                 new GetPortfolioValuationHistoryUseCase.Query(USER, date, date))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioValuationHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
@@ -133,7 +147,9 @@ class GetPortfolioValuationHistoryServiceTest {
 
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
                 new GetPortfolioValuationHistoryUseCase.Query(USER, valuationDate, valuationDate))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioValuationHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
@@ -156,14 +172,75 @@ class GetPortfolioValuationHistoryServiceTest {
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
                 new GetPortfolioValuationHistoryUseCase.Query(
                         USER, LocalDate.of(2024, 1, 3), LocalDate.of(2024, 1, 5)))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetPortfolioValuationHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
         assertTrue(success.valuations().isEmpty());
     }
 
+    @Test
+    void givenForeignCurrencyPositionWithFxRate_whenExecute_thenConvertsToBaseCurrency() {
+        LocalDate purchaseDate = LocalDate.of(2024, 1, 1);
+        LocalDate date = LocalDate.of(2024, 1, 10);
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
+                tx("ASML", TransactionType.BUY, "10", "100", purchaseDate, Currency.EUR))));
+        when(marketDataPort.getPriceHistory("ASML", date, date)).thenReturn(Uni.createFrom().item(List.of(
+                new PriceHistoryEntry("ASML", date, new BigDecimal("110"), null, Currency.EUR, OffsetDateTime.now()))));
+        when(marketDataPort.getFxHistory(Currency.EUR, Currency.USD, date.minusDays(7), date))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new FxRateEntry(Currency.EUR, Currency.USD, date, new BigDecimal("1.10"), OffsetDateTime.now()))));
+
+        GetPortfolioValuationHistoryUseCase.Result result = service.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(USER, date, date))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetPortfolioValuationHistoryUseCase.Result.Success success =
+                assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
+        DailyValuation valuation = success.valuations().getFirst();
+        assertEquals(Currency.USD, valuation.valuationCurrency());
+        // 10 shares * 110 EUR * 1.10 EUR/USD = 1210 USD
+        assertEquals(0, new BigDecimal("1210.000000").compareTo(valuation.totalMarketValue()));
+        // 10 * 100 EUR invested * 1.10 EUR/USD = 1100 USD
+        assertEquals(0, new BigDecimal("1100.000000").compareTo(valuation.totalCost()));
+        assertTrue(valuation.complete());
+    }
+
+    @Test
+    void givenForeignCurrencyPositionWithoutFxRate_whenExecute_thenMarksIncomplete() {
+        LocalDate purchaseDate = LocalDate.of(2024, 1, 1);
+        LocalDate date = LocalDate.of(2024, 1, 10);
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
+                tx("ASML", TransactionType.BUY, "10", "100", purchaseDate, Currency.EUR))));
+        when(marketDataPort.getPriceHistory("ASML", date, date)).thenReturn(Uni.createFrom().item(List.of(
+                new PriceHistoryEntry("ASML", date, new BigDecimal("110"), null, Currency.EUR, OffsetDateTime.now()))));
+        when(marketDataPort.getFxHistory(Currency.EUR, Currency.USD, date.minusDays(7), date))
+                .thenReturn(Uni.createFrom().item(List.of()));
+
+        GetPortfolioValuationHistoryUseCase.Result result = service.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(USER, date, date))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetPortfolioValuationHistoryUseCase.Result.Success success =
+                assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
+        DailyValuation valuation = success.valuations().getFirst();
+        assertFalse(valuation.complete());
+        assertEquals(0, BigDecimal.ZERO.compareTo(valuation.totalMarketValue()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(valuation.totalCost()));
+    }
+
     private static Transaction tx(String ticker, TransactionType type, String qty, String price, LocalDate date) {
+        return tx(ticker, type, qty, price, date, Currency.USD);
+    }
+
+    private static Transaction tx(
+            String ticker, TransactionType type, String qty, String price, LocalDate date, Currency currency) {
         return new Transaction(
                 UUID.randomUUID(),
                 USER,
@@ -173,12 +250,12 @@ class GetPortfolioValuationHistoryServiceTest {
                 new BigDecimal(qty),
                 new BigDecimal(price),
                 BigDecimal.ZERO,
-                Currency.USD,
+                currency,
                 date,
                 null,
                 false,
                 BigDecimal.ONE,
-                Currency.USD,
+                currency,
                 "NASDAQ",
                 "US",
                 ticker + " Inc",

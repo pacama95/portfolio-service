@@ -4,6 +4,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.CountTransactionsUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -30,7 +31,9 @@ class CountTransactionsServiceTest {
         when(repository.count(USER)).thenReturn(Uni.createFrom().item(42L));
 
         CountTransactionsUseCase.Result result = service.execute(CountTransactionsUseCase.Query.all(USER))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         CountTransactionsUseCase.Result.Success success =
                 assertInstanceOf(CountTransactionsUseCase.Result.Success.class, result);
@@ -43,7 +46,10 @@ class CountTransactionsServiceTest {
         when(repository.countByTicker(USER, "AAPL")).thenReturn(Uni.createFrom().item(3L));
 
         CountTransactionsUseCase.Result result = service.execute(
-                CountTransactionsUseCase.Query.byTicker(USER, "AAPL")).await().indefinitely();
+                CountTransactionsUseCase.Query.byTicker(USER, "AAPL"))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         CountTransactionsUseCase.Result.Success success =
                 assertInstanceOf(CountTransactionsUseCase.Result.Success.class, result);
@@ -56,7 +62,9 @@ class CountTransactionsServiceTest {
         when(repository.count(USER)).thenReturn(Uni.createFrom().item(7L));
 
         CountTransactionsUseCase.Result result = service.execute(new CountTransactionsUseCase.Query(USER, "  "))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         CountTransactionsUseCase.Result.Success success =
                 assertInstanceOf(CountTransactionsUseCase.Result.Success.class, result);

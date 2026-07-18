@@ -1,9 +1,11 @@
 package com.portfolio.core.application.usecase.history;
 
 import com.portfolio.core.domain.LedgerReplay;
+import com.portfolio.core.domain.TimeSeriesLookup;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.DailyPositionSnapshot;
 import com.portfolio.core.model.DailyValuation;
+import com.portfolio.core.model.FxRateEntry;
 import com.portfolio.core.model.PriceHistoryEntry;
 import com.portfolio.core.model.Transaction;
 import com.portfolio.core.ports.incoming.GetPortfolioValuationHistoryUseCase;
@@ -20,9 +22,12 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -30,6 +35,8 @@ import java.util.stream.Collectors;
 public class GetPortfolioValuationHistoryService implements GetPortfolioValuationHistoryUseCase {
 
     private static final Logger LOG = Logger.getLogger(GetPortfolioValuationHistoryService.class);
+    private static final int PRICE_STALENESS_DAYS = 5;
+    private static final int FX_STALENESS_DAYS = 5;
 
     private final TransactionRepository transactionRepository;
     private final MarketDataPort marketDataPort;
@@ -75,6 +82,18 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
             return Uni.createFrom().item(List.of());
         }
 
+        Set<Currency> foreignCurrencies = snapshots.stream()
+                .map(DailyPositionSnapshot::currency)
+                .filter(currency -> currency != null && currency != baseCurrency)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        return loadPrices(tickers, from, to)
+                .flatMap(priceMap -> loadFxRates(foreignCurrencies, from, to)
+                        .map(fxMap -> buildDailyValuations(byTicker, tickers, priceMap, fxMap, from, to)));
+    }
+
+    private Uni<Map<String, NavigableMap<LocalDate, BigDecimal>>> loadPrices(
+            List<String> tickers, LocalDate from, LocalDate to) {
         Uni<Map<String, NavigableMap<LocalDate, BigDecimal>>> pricesUni =
                 Uni.createFrom().item(new HashMap<>());
         for (String ticker : tickers) {
@@ -88,41 +107,83 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
                         return map;
                     }));
         }
+        return pricesUni;
+    }
 
-        return pricesUni.map(priceMap -> {
-            List<DailyValuation> valuations = new ArrayList<>();
-            for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
-                BigDecimal marketValue = BigDecimal.ZERO;
-                BigDecimal cost = BigDecimal.ZERO;
-                boolean complete = true;
-                boolean anyPosition = false;
-                for (String ticker : tickers) {
-                    NavigableMap<LocalDate, DailyPositionSnapshot> positionSeries = byTicker.get(ticker);
-                    Map.Entry<LocalDate, DailyPositionSnapshot> floor = positionSeries.floorEntry(date);
-                    if (floor == null || floor.getValue().sharesOwned().compareTo(BigDecimal.ZERO) <= 0) {
-                        continue;
-                    }
-                    anyPosition = true;
-                    DailyPositionSnapshot snap = floor.getValue();
-                    NavigableMap<LocalDate, BigDecimal> series = priceMap.get(ticker);
-                    Map.Entry<LocalDate, BigDecimal> priceFloor = series != null ? series.floorEntry(date) : null;
-                    if (priceFloor == null || priceFloor.getKey().isBefore(date.minusDays(5))) {
-                        complete = false;
-                        continue;
-                    }
-                    BigDecimal mv = snap.sharesOwned().multiply(priceFloor.getValue())
-                            .setScale(6, RoundingMode.HALF_UP);
-                    marketValue = marketValue.add(mv);
-                    cost = cost.add(snap.totalInvestedAmount() != null
-                            ? snap.totalInvestedAmount()
-                            : BigDecimal.ZERO);
+    /**
+     * FX is fetched from a week before {@code from} (rather than exactly {@code from}) so the
+     * first days of the requested range still have a usable floor rate when {@code from} lands
+     * on a weekend/holiday gap in the FX series.
+     */
+    private Uni<Map<Currency, NavigableMap<LocalDate, BigDecimal>>> loadFxRates(
+            Set<Currency> foreignCurrencies, LocalDate from, LocalDate to) {
+        Uni<Map<Currency, NavigableMap<LocalDate, BigDecimal>>> fxUni =
+                Uni.createFrom().item(new HashMap<>());
+        LocalDate fxFrom = from.minusDays(7);
+        for (Currency currency : foreignCurrencies) {
+            fxUni = fxUni.flatMap(map -> marketDataPort.getFxHistory(currency, baseCurrency, fxFrom, to)
+                    .map(entries -> {
+                        NavigableMap<LocalDate, BigDecimal> series = new TreeMap<>();
+                        for (FxRateEntry entry : entries) {
+                            series.put(entry.rateDate(), entry.rate());
+                        }
+                        map.put(currency, series);
+                        return map;
+                    }));
+        }
+        return fxUni;
+    }
+
+    private List<DailyValuation> buildDailyValuations(
+            Map<String, NavigableMap<LocalDate, DailyPositionSnapshot>> byTicker,
+            List<String> tickers,
+            Map<String, NavigableMap<LocalDate, BigDecimal>> priceMap,
+            Map<Currency, NavigableMap<LocalDate, BigDecimal>> fxMap,
+            LocalDate from, LocalDate to) {
+        List<DailyValuation> valuations = new ArrayList<>();
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            BigDecimal marketValue = BigDecimal.ZERO;
+            BigDecimal cost = BigDecimal.ZERO;
+            boolean complete = true;
+            boolean anyPosition = false;
+            for (String ticker : tickers) {
+                NavigableMap<LocalDate, DailyPositionSnapshot> positionSeries = byTicker.get(ticker);
+                Map.Entry<LocalDate, DailyPositionSnapshot> floor = positionSeries.floorEntry(date);
+                if (floor == null || floor.getValue().sharesOwned().compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
                 }
-                if (anyPosition) {
-                    valuations.add(new DailyValuation(date, baseCurrency, marketValue, cost, complete));
+                anyPosition = true;
+                DailyPositionSnapshot snap = floor.getValue();
+
+                Optional<BigDecimal> price = TimeSeriesLookup.floorWithinStaleness(
+                        priceMap.get(ticker), date, PRICE_STALENESS_DAYS);
+                Optional<BigDecimal> fxRate = fxRateFor(snap.currency(), fxMap, date);
+                if (price.isEmpty() || fxRate.isEmpty()) {
+                    complete = false;
+                    continue;
                 }
+
+                BigDecimal mv = snap.sharesOwned().multiply(price.get()).multiply(fxRate.get())
+                        .setScale(6, RoundingMode.HALF_UP);
+                marketValue = marketValue.add(mv);
+                BigDecimal investedNative = snap.totalInvestedAmount() != null
+                        ? snap.totalInvestedAmount()
+                        : BigDecimal.ZERO;
+                cost = cost.add(investedNative.multiply(fxRate.get()).setScale(6, RoundingMode.HALF_UP));
             }
-            valuations.sort(Comparator.comparing(DailyValuation::date));
-            return valuations;
-        });
+            if (anyPosition) {
+                valuations.add(new DailyValuation(date, baseCurrency, marketValue, cost, complete));
+            }
+        }
+        valuations.sort(Comparator.comparing(DailyValuation::date));
+        return valuations;
+    }
+
+    private Optional<BigDecimal> fxRateFor(
+            Currency tickerCurrency, Map<Currency, NavigableMap<LocalDate, BigDecimal>> fxMap, LocalDate date) {
+        if (tickerCurrency == null || tickerCurrency == baseCurrency) {
+            return Optional.of(BigDecimal.ONE);
+        }
+        return TimeSeriesLookup.floorWithinStaleness(fxMap.get(tickerCurrency), date, FX_STALENESS_DAYS);
     }
 }

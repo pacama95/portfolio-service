@@ -14,6 +14,7 @@ import com.portfolio.core.ports.incoming.GetPerformanceInputsUseCase;
 import com.portfolio.core.ports.incoming.GetPortfolioValuationHistoryUseCase;
 import com.portfolio.core.ports.incoming.GetPriceHistoryUseCase;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,7 +71,10 @@ class DailyHistoryControllerTest {
                 new GetDailyPositionHistoryUseCase.Query(USER_ID, from, to, "AAPL")))
                 .thenReturn(Uni.createFrom().item(new GetDailyPositionHistoryUseCase.Result.Success(snapshots)));
 
-        Response response = controller.positions(from, to, "AAPL").await().indefinitely();
+        Response response = controller.positions(from, to, "AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(snapshots, response.getEntity());
@@ -87,7 +91,10 @@ class DailyHistoryControllerTest {
                 new GetDailyPositionHistoryUseCase.Query(USER_ID, from, to, null)))
                 .thenReturn(Uni.createFrom().item(invalid));
 
-        Response response = controller.positions(from, to, null).await().indefinitely();
+        Response response = controller.positions(from, to, null)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());
@@ -104,7 +111,10 @@ class DailyHistoryControllerTest {
         when(priceHistoryUseCase.execute(any())).thenReturn(
                 Uni.createFrom().item(new GetPriceHistoryUseCase.Result.Success(entries)));
 
-        Response response = controller.prices("aapl, msft", from, to).await().indefinitely();
+        Response response = controller.prices("aapl, msft", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         verify(priceHistoryUseCase).execute(queryCaptor.capture());
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
@@ -124,7 +134,10 @@ class DailyHistoryControllerTest {
 
         when(priceHistoryUseCase.execute(any())).thenReturn(Uni.createFrom().item(invalid));
 
-        Response response = controller.prices("AAPL", from, to).await().indefinitely();
+        Response response = controller.prices("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());
@@ -139,7 +152,10 @@ class DailyHistoryControllerTest {
         when(valuationHistoryUseCase.execute(new GetPortfolioValuationHistoryUseCase.Query(USER_ID, from, to)))
                 .thenReturn(Uni.createFrom().item(new GetPortfolioValuationHistoryUseCase.Result.Success(valuations)));
 
-        Response response = controller.valuation(from, to).await().indefinitely();
+        Response response = controller.valuation(from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(valuations, response.getEntity());
@@ -155,7 +171,10 @@ class DailyHistoryControllerTest {
         when(valuationHistoryUseCase.execute(new GetPortfolioValuationHistoryUseCase.Query(USER_ID, from, to)))
                 .thenReturn(Uni.createFrom().item(invalid));
 
-        Response response = controller.valuation(from, to).await().indefinitely();
+        Response response = controller.valuation(from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());
@@ -170,7 +189,10 @@ class DailyHistoryControllerTest {
         when(capitalFlowsUseCase.execute(new GetCapitalFlowsUseCase.Query(USER_ID, from, to)))
                 .thenReturn(Uni.createFrom().item(new GetCapitalFlowsUseCase.Result.Success(flows)));
 
-        Response response = controller.capitalFlows(from, to).await().indefinitely();
+        Response response = controller.capitalFlows(from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(Map.of("flows", flows), response.getEntity());
@@ -186,7 +208,10 @@ class DailyHistoryControllerTest {
         when(capitalFlowsUseCase.execute(new GetCapitalFlowsUseCase.Query(USER_ID, from, to)))
                 .thenReturn(Uni.createFrom().item(invalid));
 
-        Response response = controller.capitalFlows(from, to).await().indefinitely();
+        Response response = controller.capitalFlows(from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());
@@ -204,7 +229,10 @@ class DailyHistoryControllerTest {
         when(performanceInputsUseCase.execute(new GetPerformanceInputsUseCase.Query(USER_ID, from, to)))
                 .thenReturn(Uni.createFrom().item(new GetPerformanceInputsUseCase.Result.Success(inputs)));
 
-        Response response = controller.performanceInputs(from, to).await().indefinitely();
+        Response response = controller.performanceInputs(from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(inputs, response.getEntity());
@@ -220,7 +248,10 @@ class DailyHistoryControllerTest {
         when(performanceInputsUseCase.execute(new GetPerformanceInputsUseCase.Query(USER_ID, from, to)))
                 .thenReturn(Uni.createFrom().item(invalid));
 
-        Response response = controller.performanceInputs(from, to).await().indefinitely();
+        Response response = controller.performanceInputs(from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());

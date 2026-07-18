@@ -9,6 +9,7 @@ import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.GetCapitalFlowsUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -39,7 +40,9 @@ class GetCapitalFlowsServiceTest {
     void givenNullFrom_whenExecute_thenInvalidRequest() {
         GetCapitalFlowsUseCase.Result result = service.execute(
                 new GetCapitalFlowsUseCase.Query(USER, null, LocalDate.of(2024, 1, 31)))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetCapitalFlowsUseCase.Result.InvalidRequest.class, result);
     }
@@ -53,7 +56,9 @@ class GetCapitalFlowsServiceTest {
         GetCapitalFlowsUseCase.Result result = service.execute(
                 new GetCapitalFlowsUseCase.Query(
                         USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetCapitalFlowsUseCase.Result.Success success =
                 assertInstanceOf(GetCapitalFlowsUseCase.Result.Success.class, result);
@@ -64,7 +69,9 @@ class GetCapitalFlowsServiceTest {
     void givenNullTo_whenExecute_thenInvalidRequest() {
         GetCapitalFlowsUseCase.Result result = service.execute(
                 new GetCapitalFlowsUseCase.Query(USER, LocalDate.of(2024, 1, 1), null))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetCapitalFlowsUseCase.Result.InvalidRequest.class, result);
     }
@@ -74,7 +81,9 @@ class GetCapitalFlowsServiceTest {
         GetCapitalFlowsUseCase.Result result = service.execute(
                 new GetCapitalFlowsUseCase.Query(
                         USER, LocalDate.of(2024, 2, 1), LocalDate.of(2024, 1, 1)))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         assertInstanceOf(GetCapitalFlowsUseCase.Result.InvalidRequest.class, result);
     }
@@ -89,7 +98,9 @@ class GetCapitalFlowsServiceTest {
         GetCapitalFlowsUseCase.Result result = service.execute(
                 new GetCapitalFlowsUseCase.Query(
                         USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31)))
-                .await().indefinitely();
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
 
         GetCapitalFlowsUseCase.Result.Success success =
                 assertInstanceOf(GetCapitalFlowsUseCase.Result.Success.class, result);
