@@ -17,12 +17,14 @@ import jakarta.enterprise.inject.spi.CDI;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @QuarkusTest
@@ -32,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PriceIngestionRunRepositoryIT {
 
     private static final UUID COMPLETED_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final Duration STALE_RUN_TIMEOUT = Duration.ofHours(3);
 
     @Inject
     PriceIngestionRunRepository repository;
@@ -57,7 +60,7 @@ class PriceIngestionRunRepositoryIT {
     @RunOnVertxContext
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/ingestion-run-seed.sql")
     void givenOnlyCompleted_whenHasActiveRun_thenFalse(UniAsserter asserter) {
-        asserter.assertThat(() -> repository.hasActiveRun(), active -> assertFalse(active));
+        asserter.assertThat(() -> repository.hasActiveRun(STALE_RUN_TIMEOUT), active -> assertFalse(active));
     }
 
     @Test
@@ -78,7 +81,7 @@ class PriceIngestionRunRepositoryIT {
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/ingestion-run-seed.sql")
     void givenPendingSaved_whenHasActiveRun_thenTrue(UniAsserter asserter) {
         UUID pendingId = UUID.randomUUID();
-        OffsetDateTime now = OffsetDateTime.parse("2024-01-03T00:00:00Z");
+        OffsetDateTime now = OffsetDateTime.now();
         IngestionRun pending = new IngestionRun(
                 pendingId,
                 UserId.of("user-a"),
@@ -98,12 +101,48 @@ class PriceIngestionRunRepositoryIT {
         asserter.assertThat(
                 () -> repository.save(pending),
                 saved -> assertEquals(IngestionRun.Status.PENDING, saved.status()));
-        asserter.assertThat(() -> repository.hasActiveRun(), active -> assertTrue(active));
+        asserter.assertThat(() -> repository.hasActiveRun(STALE_RUN_TIMEOUT), active -> assertTrue(active));
         asserter.assertThat(
                 () -> repository.findById(pendingId),
                 optional -> {
                     assertTrue(optional.isPresent());
                     assertEquals(IngestionRun.Status.PENDING, optional.get().status());
+                });
+    }
+
+    @Test
+    @RunOnVertxContext
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/ingestion-run-seed.sql")
+    void givenStaleRunningRun_whenHasActiveRun_thenReapedToFailedAndFalse(UniAsserter asserter) {
+        UUID staleId = UUID.randomUUID();
+        OffsetDateTime startedLongAgo = OffsetDateTime.now().minus(STALE_RUN_TIMEOUT).minusMinutes(1);
+        IngestionRun stale = new IngestionRun(
+                staleId,
+                UserId.of("user-a"),
+                IngestionRun.Status.RUNNING,
+                LocalDate.of(2024, 1, 1),
+                LocalDate.of(2024, 1, 2),
+                "MSFT",
+                false,
+                1,
+                0,
+                null,
+                startedLongAgo,
+                null,
+                startedLongAgo,
+                startedLongAgo);
+
+        asserter.assertThat(
+                () -> repository.save(stale),
+                saved -> assertEquals(IngestionRun.Status.RUNNING, saved.status()));
+        asserter.assertThat(() -> repository.hasActiveRun(STALE_RUN_TIMEOUT), active -> assertFalse(active));
+        asserter.assertThat(
+                () -> repository.findById(staleId),
+                optional -> {
+                    assertTrue(optional.isPresent());
+                    assertEquals(IngestionRun.Status.FAILED, optional.get().status());
+                    assertNotNull(optional.get().errorMessage());
+                    assertNotNull(optional.get().completedAt());
                 });
     }
 }

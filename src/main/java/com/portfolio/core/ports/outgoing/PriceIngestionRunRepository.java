@@ -3,12 +3,13 @@ package com.portfolio.core.ports.outgoing;
 import com.portfolio.core.model.IngestionRun;
 import io.smallrye.mutiny.Uni;
 
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface PriceIngestionRunRepository {
 
-    Uni<Boolean> hasActiveRun();
+    Uni<Boolean> hasActiveRun(Duration staleAfter);
 
     Uni<IngestionRun> save(IngestionRun run);
 

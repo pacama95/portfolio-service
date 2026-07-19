@@ -10,6 +10,8 @@ import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,17 +19,32 @@ import java.util.UUID;
 @ApplicationScoped
 public class PriceIngestionRunRepositoryAdapter implements PriceIngestionRunRepository {
 
+    private static final List<PriceIngestionRunEntity.StatusDb> ACTIVE_STATUSES = List.of(
+            PriceIngestionRunEntity.StatusDb.PENDING,
+            PriceIngestionRunEntity.StatusDb.RUNNING);
+
     @Override
-    @WithSession
-    public Uni<Boolean> hasActiveRun() {
+    @WithTransaction
+    public Uni<Boolean> hasActiveRun(Duration staleAfter) {
+        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime cutoff = now.minus(staleAfter);
         return Panache.getSession().flatMap(session ->
                 session.createQuery(
-                                "select count(r) from PriceIngestionRunEntity r where r.status in (:statuses)",
-                                Long.class)
-                        .setParameter("statuses", List.of(
-                                PriceIngestionRunEntity.StatusDb.PENDING,
-                                PriceIngestionRunEntity.StatusDb.RUNNING))
-                        .getSingleResult())
+                                "update PriceIngestionRunEntity r set r.status = :failed, "
+                                        + "r.errorMessage = :error, r.completedAt = :now, r.updatedAt = :now "
+                                        + "where r.status in (:active) "
+                                        + "and coalesce(r.startedAt, r.createdAt) < :cutoff")
+                        .setParameter("failed", PriceIngestionRunEntity.StatusDb.FAILED)
+                        .setParameter("error", "Ingestion run timed out")
+                        .setParameter("now", now)
+                        .setParameter("active", ACTIVE_STATUSES)
+                        .setParameter("cutoff", cutoff)
+                        .executeUpdate()
+                        .chain(() -> session.createQuery(
+                                        "select count(r) from PriceIngestionRunEntity r where r.status in (:active)",
+                                        Long.class)
+                                .setParameter("active", ACTIVE_STATUSES)
+                                .getSingleResult()))
                 .map(count -> count != null && count > 0);
     }
 

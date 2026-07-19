@@ -7,8 +7,10 @@ import com.portfolio.core.ports.outgoing.PriceIngestionRunRepository;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -22,14 +24,18 @@ public class TriggerPriceIngestionService implements TriggerPriceIngestionUseCas
     private final TransactionRepository transactionRepository;
     private final MarketDataPort marketDataPort;
     private final PriceIngestionRunRepository runRepository;
+    private final Duration staleRunTimeout;
 
     public TriggerPriceIngestionService(
             TransactionRepository transactionRepository,
             MarketDataPort marketDataPort,
-            PriceIngestionRunRepository runRepository) {
+            PriceIngestionRunRepository runRepository,
+            @ConfigProperty(name = "application.market-data.ingestion.stale-run-timeout", defaultValue = "PT3H")
+            Duration staleRunTimeout) {
         this.transactionRepository = transactionRepository;
         this.marketDataPort = marketDataPort;
         this.runRepository = runRepository;
+        this.staleRunTimeout = staleRunTimeout;
     }
 
     @Override
@@ -40,7 +46,7 @@ public class TriggerPriceIngestionService implements TriggerPriceIngestionUseCas
         if (command.from() == null || command.to() == null || command.from().isAfter(command.to())) {
             return Uni.createFrom().item(new Result.InvalidRequest("from/to dates are required and from <= to"));
         }
-        return runRepository.hasActiveRun()
+        return runRepository.hasActiveRun(staleRunTimeout)
                 .flatMap(running -> {
                     if (Boolean.TRUE.equals(running)) {
                         return Uni.createFrom().item(new Result.Conflict("An ingestion run is already in progress"));
