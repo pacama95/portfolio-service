@@ -24,6 +24,6 @@ public record IngestionRun(
 ) {
     @RegisterForReflection
     public enum Status {
-        PENDING, RUNNING, COMPLETED, FAILED
+        PENDING, RUNNING, COMPLETED, PARTIAL, FAILED
     }
 }

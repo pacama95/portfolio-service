@@ -23,29 +23,43 @@ public class PriceIngestionRunRepositoryAdapter implements PriceIngestionRunRepo
             PriceIngestionRunEntity.StatusDb.PENDING,
             PriceIngestionRunEntity.StatusDb.RUNNING);
 
+    // Arbitrary fixed key for a single global advisory lock serializing "is a run already
+    // active" check-then-act sequences — there is only ever one ingestion-trigger slot, unlike
+    // the per-(userId, ticker) locks used for transaction writes.
+    private static final long INGESTION_TRIGGER_LOCK_KEY = 0x494e4753_54524947L;
+
     @Override
     @WithTransaction
-    public Uni<Boolean> hasActiveRun(Duration staleAfter) {
+    public Uni<Optional<IngestionRun>> startRunIfNoneActive(Duration staleAfter, IngestionRun candidate) {
         OffsetDateTime now = OffsetDateTime.now();
         OffsetDateTime cutoff = now.minus(staleAfter);
         return Panache.getSession().flatMap(session ->
-                session.createQuery(
-                                "update PriceIngestionRunEntity r set r.status = :failed, "
-                                        + "r.errorMessage = :error, r.completedAt = :now, r.updatedAt = :now "
-                                        + "where r.status in (:active) "
-                                        + "and coalesce(r.startedAt, r.createdAt) < :cutoff")
-                        .setParameter("failed", PriceIngestionRunEntity.StatusDb.FAILED)
-                        .setParameter("error", "Ingestion run timed out")
-                        .setParameter("now", now)
-                        .setParameter("active", ACTIVE_STATUSES)
-                        .setParameter("cutoff", cutoff)
-                        .executeUpdate()
+                session.createNativeQuery("select pg_advisory_xact_lock(:key)", Long.class)
+                        .setParameter("key", INGESTION_TRIGGER_LOCK_KEY)
+                        .getSingleResultOrNull()
+                        .chain(ignored -> session.createQuery(
+                                        "update PriceIngestionRunEntity r set r.status = :failed, "
+                                                + "r.errorMessage = :error, r.completedAt = :now, "
+                                                + "r.updatedAt = :now "
+                                                + "where r.status in (:active) "
+                                                + "and coalesce(r.startedAt, r.createdAt) < :cutoff")
+                                .setParameter("failed", PriceIngestionRunEntity.StatusDb.FAILED)
+                                .setParameter("error", "Ingestion run timed out")
+                                .setParameter("now", now)
+                                .setParameter("active", ACTIVE_STATUSES)
+                                .setParameter("cutoff", cutoff)
+                                .executeUpdate())
                         .chain(() -> session.createQuery(
                                         "select count(r) from PriceIngestionRunEntity r where r.status in (:active)",
                                         Long.class)
                                 .setParameter("active", ACTIVE_STATUSES)
-                                .getSingleResult()))
-                .map(count -> count != null && count > 0);
+                                .getSingleResult())
+                        .flatMap(count -> {
+                            if (count != null && count > 0) {
+                                return Uni.createFrom().<Optional<IngestionRun>>item(Optional.empty());
+                            }
+                            return session.merge(toEntity(candidate)).map(this::toDomain).map(Optional::of);
+                        }));
     }
 
     @Override

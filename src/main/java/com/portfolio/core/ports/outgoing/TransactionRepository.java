@@ -21,6 +21,12 @@ public interface TransactionRepository {
 
     Uni<List<Transaction>> findAll(UserId userId);
 
+    /**
+     * All transactions for all users — used to derive cross-user ledger state (e.g. which
+     * tickers currently have an open position) rather than to serve any single user's view.
+     */
+    Uni<List<Transaction>> findAll();
+
     Uni<List<Transaction>> findByTicker(UserId userId, String ticker);
 
     Uni<List<Transaction>> search(
@@ -36,8 +42,6 @@ public interface TransactionRepository {
     Uni<Long> count(UserId userId);
 
     Uni<Long> countByTicker(UserId userId, String ticker);
-
-    Uni<List<String>> findDistinctTickers();
 
     /**
      * Acquires a transaction-scoped lock per (userId, ticker) pair — released automatically

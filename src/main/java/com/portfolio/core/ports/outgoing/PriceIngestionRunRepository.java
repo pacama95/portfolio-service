@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public interface PriceIngestionRunRepository {
 
-    Uni<Boolean> hasActiveRun(Duration staleAfter);
+    Uni<Optional<IngestionRun>> startRunIfNoneActive(Duration staleAfter, IngestionRun candidate);
 
     Uni<IngestionRun> save(IngestionRun run);
 

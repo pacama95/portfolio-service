@@ -67,6 +67,12 @@ public class TransactionRepositoryAdapter implements TransactionRepository {
 
     @Override
     @WithSession
+    public Uni<List<Transaction>> findAll() {
+        return repository.listAll().map(list -> list.stream().map(mapper::toDomain).toList());
+    }
+
+    @Override
+    @WithSession
     public Uni<List<Transaction>> findByTicker(UserId userId, String ticker) {
         return repository.findByUserAndTicker(userId.value(), ticker)
                 .map(list -> list.stream().map(mapper::toDomain).toList());
@@ -105,12 +111,6 @@ public class TransactionRepositoryAdapter implements TransactionRepository {
     @WithSession
     public Uni<Long> countByTicker(UserId userId, String ticker) {
         return repository.countByUserAndTicker(userId.value(), ticker);
-    }
-
-    @Override
-    @WithSession
-    public Uni<List<String>> findDistinctTickers() {
-        return repository.findDistinctTickers();
     }
 
     @Override

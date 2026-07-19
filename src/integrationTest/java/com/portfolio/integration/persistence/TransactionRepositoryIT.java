@@ -29,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -121,12 +122,15 @@ class TransactionRepositoryIT {
     @Test
     @RunOnVertxContext
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-seed.sql")
-    void givenSeededTransactions_whenFindDistinctTickers_thenReturnsAllTickers(UniAsserter asserter) {
+    void givenSeededTransactions_whenFindAllNoArg_thenReturnsRowsForEveryUser(UniAsserter asserter) {
         asserter.assertThat(
-                () -> repository.findDistinctTickers(),
-                tickers -> {
-                    assertTrue(tickers.containsAll(List.of("AAPL", "MSFT", "GOOG")));
-                    assertEquals(3, tickers.size());
+                () -> repository.findAll(),
+                transactions -> {
+                    assertEquals(4, transactions.size());
+                    assertTrue(transactions.stream()
+                            .map(Transaction::ticker)
+                            .collect(Collectors.toSet())
+                            .containsAll(List.of("AAPL", "MSFT", "GOOG")));
                 });
     }
 

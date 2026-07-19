@@ -61,5 +61,5 @@ public class PriceIngestionRunEntity {
     @Column(name = "updated_at", nullable = false)
     public OffsetDateTime updatedAt;
 
-    public enum StatusDb { PENDING, RUNNING, COMPLETED, FAILED }
+    public enum StatusDb { PENDING, RUNNING, COMPLETED, PARTIAL, FAILED }
 }

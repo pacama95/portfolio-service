@@ -24,3 +24,13 @@ databaseChangeLog:
             sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'SEK'
         - sql:
             sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'NOK'
+  - changeSet:
+      id: 003-extend-ingestion-run-status
+      author: portfolio-service
+      comment: >
+        Adds a PARTIAL status so an ingestion run that fetched some symbols successfully and
+        failed on others can be recorded as such, instead of the whole run being marked FAILED
+        (which previously discarded which symbols had already succeeded).
+      changes:
+        - sql:
+            sql: ALTER TYPE ingestion_run_status ADD VALUE IF NOT EXISTS 'PARTIAL'

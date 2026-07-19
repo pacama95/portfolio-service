@@ -74,9 +74,4 @@ public class TransactionPanacheRepository implements PanacheRepositoryBase<Trans
         return delete("userId = ?1 and id = ?2", userId, id).map(count -> count > 0);
     }
 
-    public Uni<List<String>> findDistinctTickers() {
-        return getSession().flatMap(session ->
-                session.createQuery("select distinct t.ticker from TransactionEntity t", String.class)
-                        .getResultList());
-    }
 }

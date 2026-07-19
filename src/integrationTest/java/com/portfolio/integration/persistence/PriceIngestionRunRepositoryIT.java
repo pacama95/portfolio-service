@@ -43,6 +43,25 @@ class PriceIngestionRunRepositoryIT {
     private final ConnectionHolder connectionHolder =
             () -> CDI.current().select(AgroalDataSource.class).get().getConnection();
 
+    private static IngestionRun pendingCandidate(UUID id, String ticker) {
+        OffsetDateTime now = OffsetDateTime.now();
+        return new IngestionRun(
+                id,
+                UserId.of("user-a"),
+                IngestionRun.Status.PENDING,
+                LocalDate.of(2024, 1, 1),
+                LocalDate.of(2024, 1, 2),
+                ticker,
+                false,
+                0,
+                0,
+                null,
+                null,
+                null,
+                now,
+                now);
+    }
+
     @Test
     @RunOnVertxContext
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/ingestion-run-seed.sql")
@@ -59,8 +78,15 @@ class PriceIngestionRunRepositoryIT {
     @Test
     @RunOnVertxContext
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/ingestion-run-seed.sql")
-    void givenOnlyCompleted_whenHasActiveRun_thenFalse(UniAsserter asserter) {
-        asserter.assertThat(() -> repository.hasActiveRun(STALE_RUN_TIMEOUT), active -> assertFalse(active));
+    void givenOnlyCompleted_whenStartRunIfNoneActive_thenStartsNewRun(UniAsserter asserter) {
+        UUID candidateId = UUID.randomUUID();
+        asserter.assertThat(
+                () -> repository.startRunIfNoneActive(STALE_RUN_TIMEOUT, pendingCandidate(candidateId, "MSFT")),
+                started -> {
+                    assertTrue(started.isPresent());
+                    assertEquals(candidateId, started.get().id());
+                    assertEquals(IngestionRun.Status.PENDING, started.get().status());
+                });
     }
 
     @Test
@@ -79,42 +105,33 @@ class PriceIngestionRunRepositoryIT {
     @Test
     @RunOnVertxContext
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/ingestion-run-seed.sql")
-    void givenPendingSaved_whenHasActiveRun_thenTrue(UniAsserter asserter) {
+    void givenActiveRunAlready_whenStartRunIfNoneActive_thenEmptyAndCandidateNotPersisted(UniAsserter asserter) {
         UUID pendingId = UUID.randomUUID();
-        OffsetDateTime now = OffsetDateTime.now();
-        IngestionRun pending = new IngestionRun(
-                pendingId,
-                UserId.of("user-a"),
-                IngestionRun.Status.PENDING,
-                LocalDate.of(2024, 1, 1),
-                LocalDate.of(2024, 1, 2),
-                "MSFT",
-                false,
-                0,
-                0,
-                null,
-                null,
-                null,
-                now,
-                now);
+        UUID candidateId = UUID.randomUUID();
 
         asserter.assertThat(
-                () -> repository.save(pending),
+                () -> repository.save(pendingCandidate(pendingId, "MSFT")),
                 saved -> assertEquals(IngestionRun.Status.PENDING, saved.status()));
-        asserter.assertThat(() -> repository.hasActiveRun(STALE_RUN_TIMEOUT), active -> assertTrue(active));
+        asserter.assertThat(
+                () -> repository.startRunIfNoneActive(STALE_RUN_TIMEOUT, pendingCandidate(candidateId, "GOOG")),
+                started -> assertTrue(started.isEmpty()));
         asserter.assertThat(
                 () -> repository.findById(pendingId),
                 optional -> {
                     assertTrue(optional.isPresent());
                     assertEquals(IngestionRun.Status.PENDING, optional.get().status());
                 });
+        asserter.assertThat(
+                () -> repository.findById(candidateId),
+                optional -> assertFalse(optional.isPresent()));
     }
 
     @Test
     @RunOnVertxContext
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/ingestion-run-seed.sql")
-    void givenStaleRunningRun_whenHasActiveRun_thenReapedToFailedAndFalse(UniAsserter asserter) {
+    void givenStaleRunningRun_whenStartRunIfNoneActive_thenReapedAndNewRunStarted(UniAsserter asserter) {
         UUID staleId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
         OffsetDateTime startedLongAgo = OffsetDateTime.now().minus(STALE_RUN_TIMEOUT).minusMinutes(1);
         IngestionRun stale = new IngestionRun(
                 staleId,
@@ -135,7 +152,12 @@ class PriceIngestionRunRepositoryIT {
         asserter.assertThat(
                 () -> repository.save(stale),
                 saved -> assertEquals(IngestionRun.Status.RUNNING, saved.status()));
-        asserter.assertThat(() -> repository.hasActiveRun(STALE_RUN_TIMEOUT), active -> assertFalse(active));
+        asserter.assertThat(
+                () -> repository.startRunIfNoneActive(STALE_RUN_TIMEOUT, pendingCandidate(candidateId, "GOOG")),
+                started -> {
+                    assertTrue(started.isPresent());
+                    assertEquals(candidateId, started.get().id());
+                });
         asserter.assertThat(
                 () -> repository.findById(staleId),
                 optional -> {
