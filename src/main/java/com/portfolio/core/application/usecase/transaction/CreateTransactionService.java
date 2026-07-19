@@ -1,5 +1,6 @@
 package com.portfolio.core.application.usecase.transaction;
 
+import com.portfolio.core.domain.LedgerReplay;
 import com.portfolio.core.model.Transaction;
 import com.portfolio.core.ports.incoming.CreateTransactionUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
@@ -9,6 +10,8 @@ import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @ApplicationScoped
@@ -63,8 +66,27 @@ public class CreateTransactionService implements CreateTransactionUseCase {
                 now,
                 now);
 
-        return transactionRepository.save(transaction)
-                .invoke(saved -> LOG.infof("Created transaction id=%s ticker=%s", saved.id(), saved.ticker()))
-                .map(Result.Success::new);
+        // Locked so a concurrent create/update/delete for the same ticker can't slip in between
+        // this validation and the save (see TransactionRepository.withTickersLocked).
+        return transactionRepository.withTickersLocked(
+                command.userId(), List.of(transaction.ticker()), byTicker -> {
+                    List<Transaction> existing = byTicker.getOrDefault(transaction.ticker(), List.of());
+                    List<Transaction> combined = new ArrayList<>(existing);
+                    combined.add(transaction);
+                    LedgerReplay.ApplyResult replay = LedgerReplay.replayTicker(combined);
+                    if (replay instanceof LedgerReplay.ApplyResult.Oversell oversell) {
+                        return Uni.createFrom().<Result>item(new Result.Conflict(
+                                "Would oversell " + oversell.ticker() + ": requested " + oversell.requested()
+                                        + " available " + oversell.available()
+                                        + " as of " + transaction.transactionDate()));
+                    }
+                    if (replay instanceof LedgerReplay.ApplyResult.InvalidInput invalid) {
+                        return Uni.createFrom().<Result>item(new Result.InvalidRequest(invalid.message()));
+                    }
+                    return transactionRepository.save(transaction)
+                            .invoke(saved -> LOG.infof(
+                                    "Created transaction id=%s ticker=%s", saved.id(), saved.ticker()))
+                            .map(Result.Success::new);
+                });
     }
 }

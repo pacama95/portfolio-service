@@ -14,6 +14,7 @@ public interface GetPortfolioValuationHistoryUseCase {
     sealed interface Result {
         record Success(List<DailyValuation> valuations) implements Result {}
         record InvalidRequest(String message) implements Result {}
+        record Conflict(String message) implements Result {}
     }
 
     record Query(UserId userId, LocalDate from, LocalDate to) {

@@ -114,6 +114,23 @@ class GetPositionsServiceTest {
         assertEquals(0, new BigDecimal("1500.000000").compareTo(position.marketValue()));
     }
 
+    @Test
+    void givenInconsistentLedger_whenExecute_thenConflict() {
+        List<Transaction> txs = List.of(
+                tx("AAPL", TransactionType.BUY, "5", "100", LocalDate.of(2024, 1, 1)),
+                tx("AAPL", TransactionType.SELL, "10", "100", LocalDate.of(2024, 1, 2)));
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(txs));
+
+        GetPositionsUseCase.Result result = service.execute(GetPositionsUseCase.Query.all(USER))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetPositionsUseCase.Result.Conflict conflict =
+                assertInstanceOf(GetPositionsUseCase.Result.Conflict.class, result);
+        assertTrue(conflict.message().contains("AAPL"));
+    }
+
     private static Transaction tx(
             String ticker, TransactionType type, String qty, String price, LocalDate date) {
         return new Transaction(

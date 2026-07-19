@@ -17,6 +17,7 @@ public interface CreateTransactionUseCase {
     sealed interface Result {
         record Success(Transaction transaction) implements Result {}
         record InvalidRequest(String message) implements Result {}
+        record Conflict(String message) implements Result {}
     }
 
     record Command(

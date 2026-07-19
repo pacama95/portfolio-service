@@ -48,7 +48,11 @@ public class GetPortfolioSummaryService implements GetPortfolioSummaryUseCase {
                 .invoke(summary -> LOG.infof(
                         "Portfolio summary positions=%d active=%d marketValue=%s",
                         summary.totalPositions(), summary.activePositions(), summary.totalMarketValue()))
-                .map(Result.Success::new);
+                .<Result>map(Result.Success::new)
+                .onFailure(LedgerReplay.LedgerInconsistencyException.class).recoverWithItem(failure -> {
+                    LOG.warnf(failure, "Inconsistent ledger userId=%s", query.userId());
+                    return new Result.Conflict(failure.getMessage());
+                });
     }
 
     private Uni<PortfolioSummary> enrichAndSummarize(List<Position> positions) {

@@ -34,6 +34,18 @@ public final class LedgerReplay {
         record InvalidInput(String message) implements ApplyResult {}
     }
 
+    /**
+     * Thrown by {@link #replayAll} and {@link #dailySnapshots} when a ticker's ledger can't be
+     * folded cleanly (oversell, invalid stored data). Callers should catch this specific type —
+     * never a bare {@code IllegalStateException}/{@code IllegalArgumentException} — so an
+     * unrelated bug elsewhere can't be misread as a business-level ledger conflict.
+     */
+    public static final class LedgerInconsistencyException extends RuntimeException {
+        public LedgerInconsistencyException(String message) {
+            super(message);
+        }
+    }
+
     public record State(
             BigDecimal sharesOwned,
             BigDecimal averageCostPerShare,
@@ -90,11 +102,11 @@ public final class LedgerReplay {
             if (result instanceof ApplyResult.Success success) {
                 positions.add(success.state().toPosition(entry.getKey(), null));
             } else if (result instanceof ApplyResult.Oversell oversell) {
-                throw new IllegalStateException(
+                throw new LedgerInconsistencyException(
                         "Oversell for " + oversell.ticker() + ": requested " + oversell.requested()
                                 + " available " + oversell.available());
             } else if (result instanceof ApplyResult.InvalidInput invalid) {
-                throw new IllegalArgumentException(invalid.message());
+                throw new LedgerInconsistencyException(invalid.message());
             }
         }
         return positions;
@@ -129,10 +141,15 @@ public final class LedgerReplay {
                     break;
                 }
                 ApplyResult result = apply(state, tx);
-                if (!(result instanceof ApplyResult.Success success)) {
-                    continue;
+                if (result instanceof ApplyResult.Oversell oversell) {
+                    throw new LedgerInconsistencyException(
+                            "Oversell for " + oversell.ticker() + ": requested " + oversell.requested()
+                                    + " available " + oversell.available());
                 }
-                state = success.state();
+                if (result instanceof ApplyResult.InvalidInput invalid) {
+                    throw new LedgerInconsistencyException(invalid.message());
+                }
+                state = ((ApplyResult.Success) result).state();
                 if (tx.transactionDate().isBefore(from)) {
                     continue;
                 }

@@ -18,6 +18,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
+import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -224,4 +226,33 @@ class TransactionRepositoryIT {
                     assertEquals(0, new BigDecimal("3.000000").compareTo(optional.get().quantity()));
                 });
     }
+
+    @Test
+    @RunOnVertxContext
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-seed.sql")
+    void givenSeededTransactions_whenWithTickersLocked_thenReturnsExistingTransactionsForTicker(
+            UniAsserter asserter) {
+        asserter.assertThat(
+                () -> repository.withTickersLocked(USER_A, List.of("AAPL"), byTicker -> {
+                    List<Transaction> aapl = byTicker.get("AAPL");
+                    return Uni.createFrom().item(aapl.size());
+                }),
+                size -> assertEquals(2, size));
+    }
+
+    @Test
+    @RunOnVertxContext
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-seed.sql")
+    void givenSeededTransactions_whenWithTickersLockedForMultipleTickers_thenReturnsBoth(UniAsserter asserter) {
+        asserter.assertThat(
+                () -> repository.withTickersLocked(USER_A, List.of("MSFT", "AAPL"), byTicker ->
+                        Uni.createFrom().item(Map.of(
+                                "aapl", byTicker.get("AAPL").size(),
+                                "msft", byTicker.get("MSFT").size()))),
+                sizes -> {
+                    assertEquals(2, sizes.get("aapl"));
+                    assertEquals(1, sizes.get("msft"));
+                });
+    }
+
 }

@@ -31,10 +31,14 @@ public class GetDailyPositionHistoryService implements GetDailyPositionHistoryUs
         Uni<List<Transaction>> load = query.ticker() == null || query.ticker().isBlank()
                 ? transactionRepository.findAll(query.userId())
                 : transactionRepository.findByTicker(query.userId(), query.ticker().trim().toUpperCase());
-        return load.map(transactions -> {
-            var snapshots = LedgerReplay.dailySnapshots(transactions, query.from(), query.to());
-            LOG.infof("Daily position history snapshots=%d", snapshots.size());
-            return new Result.Success(snapshots);
-        });
+        return load.<Result>map(transactions -> {
+                    var snapshots = LedgerReplay.dailySnapshots(transactions, query.from(), query.to());
+                    LOG.infof("Daily position history snapshots=%d", snapshots.size());
+                    return new Result.Success(snapshots);
+                })
+                .onFailure(LedgerReplay.LedgerInconsistencyException.class).recoverWithItem(failure -> {
+                    LOG.warnf(failure, "Inconsistent ledger userId=%s", query.userId());
+                    return new Result.Conflict(failure.getMessage());
+                });
     }
 }

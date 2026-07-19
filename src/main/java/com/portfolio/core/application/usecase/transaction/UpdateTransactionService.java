@@ -1,5 +1,6 @@
 package com.portfolio.core.application.usecase.transaction;
 
+import com.portfolio.core.domain.LedgerReplay;
 import com.portfolio.core.model.Transaction;
 import com.portfolio.core.ports.incoming.UpdateTransactionUseCase;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
@@ -9,6 +10,9 @@ import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 @ApplicationScoped
 public class UpdateTransactionService implements UpdateTransactionUseCase {
@@ -62,9 +66,61 @@ public class UpdateTransactionService implements UpdateTransactionUseCase {
                             command.companyName() != null ? command.companyName() : existing.companyName(),
                             existing.createdAt(),
                             OffsetDateTime.now());
-                    return transactionRepository.save(updated)
-                            .invoke(saved -> LOG.infof("Updated transaction id=%s ticker=%s", saved.id(), saved.ticker()))
-                            .map(Result.Success::new);
+                    return validateAndSave(existing, updated);
                 });
+    }
+
+    /**
+     * Replays the affected ledger(s) with the edit applied before persisting it. A ticker
+     * change is validated on both sides: the old ticker without this transaction (removing/
+     * moving it must not oversell what's left behind) and the new ticker with it added. Both
+     * tickers are locked together so a concurrent write for either can't slip in between this
+     * validation and the save.
+     */
+    private Uni<Result> validateAndSave(Transaction existing, Transaction updated) {
+        return transactionRepository.withTickersLocked(
+                existing.userId(), List.of(existing.ticker(), updated.ticker()), byTicker -> {
+                    List<Transaction> oldTickerRemaining = byTicker.getOrDefault(existing.ticker(), List.of())
+                            .stream()
+                            .filter(tx -> !tx.id().equals(existing.id()))
+                            .toList();
+
+                    if (updated.ticker().equals(existing.ticker())) {
+                        List<Transaction> combined = new ArrayList<>(oldTickerRemaining);
+                        combined.add(updated);
+                        return rejectionFor(LedgerReplay.replayTicker(combined), updated)
+                                .<Uni<Result>>map(Uni.createFrom()::item)
+                                .orElseGet(() -> save(updated));
+                    }
+
+                    Optional<Result> oldTickerRejection =
+                            rejectionFor(LedgerReplay.replayTicker(oldTickerRemaining), existing);
+                    if (oldTickerRejection.isPresent()) {
+                        return Uni.createFrom().item(oldTickerRejection.get());
+                    }
+                    List<Transaction> combined = new ArrayList<>(byTicker.getOrDefault(updated.ticker(), List.of()));
+                    combined.add(updated);
+                    return rejectionFor(LedgerReplay.replayTicker(combined), updated)
+                            .<Uni<Result>>map(Uni.createFrom()::item)
+                            .orElseGet(() -> save(updated));
+                });
+    }
+
+    private Uni<Result> save(Transaction updated) {
+        return transactionRepository.save(updated)
+                .invoke(saved -> LOG.infof("Updated transaction id=%s ticker=%s", saved.id(), saved.ticker()))
+                .map(Result.Success::new);
+    }
+
+    private static Optional<Result> rejectionFor(LedgerReplay.ApplyResult replay, Transaction subject) {
+        if (replay instanceof LedgerReplay.ApplyResult.Oversell oversell) {
+            return Optional.of(new Result.Conflict(
+                    "Would oversell " + oversell.ticker() + ": requested " + oversell.requested()
+                            + " available " + oversell.available() + " as of " + subject.transactionDate()));
+        }
+        if (replay instanceof LedgerReplay.ApplyResult.InvalidInput invalid) {
+            return Optional.of(new Result.InvalidRequest(invalid.message()));
+        }
+        return Optional.empty();
     }
 }

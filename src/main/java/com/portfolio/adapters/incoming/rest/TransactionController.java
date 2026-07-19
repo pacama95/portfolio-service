@@ -83,6 +83,10 @@ public class TransactionController {
                         LOG.warnf("Create transaction rejected reason=%s", invalid.message());
                         yield Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
                     }
+                    case CreateTransactionUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Create transaction conflict reason=%s", conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
+                    }
                 });
     }
 
@@ -156,6 +160,10 @@ public class TransactionController {
                         LOG.warnf("Update transaction rejected id=%s reason=%s", id, invalid.message());
                         yield Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
                     }
+                    case UpdateTransactionUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Update transaction conflict id=%s reason=%s", id, conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
+                    }
                 });
     }
 
@@ -171,6 +179,10 @@ public class TransactionController {
                     case DeleteTransactionUseCase.Result.NotFound ignored -> {
                         LOG.warnf("Delete transaction not found id=%s", id);
                         yield Response.status(Response.Status.NOT_FOUND).build();
+                    }
+                    case DeleteTransactionUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Delete transaction conflict id=%s reason=%s", id, conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
                     }
                 });
     }

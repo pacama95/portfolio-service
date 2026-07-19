@@ -11,6 +11,7 @@ import com.portfolio.core.ports.incoming.GetPositionsUseCase;
 import com.portfolio.core.ports.incoming.UpdateMarketPriceUseCase;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +83,33 @@ class PositionControllerTest {
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(List.of(responseBody), response.getEntity());
+    }
+
+    @Test
+    void givenInconsistentLedger_whenListAll_thenReturns409() {
+        when(getPositionsUseCase.execute(GetPositionsUseCase.Query.all(USER_ID)))
+                .thenReturn(Uni.createFrom().item(new GetPositionsUseCase.Result.Conflict("Oversell for AAPL")));
+
+        Response response = controller.listAll()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    void givenInconsistentLedger_whenCount_thenThrowsConflictResponse() {
+        when(getPositionsUseCase.execute(GetPositionsUseCase.Query.all(USER_ID)))
+                .thenReturn(Uni.createFrom().item(new GetPositionsUseCase.Result.Conflict("Oversell for AAPL")));
+
+        WebApplicationException ex = (WebApplicationException) controller.count()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(WebApplicationException.class)
+                .getFailure();
+
+        assertEquals(Response.Status.CONFLICT.getStatusCode(), ex.getResponse().getStatus());
     }
 
     @Test

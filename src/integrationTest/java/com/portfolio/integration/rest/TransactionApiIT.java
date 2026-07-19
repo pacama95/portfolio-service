@@ -9,8 +9,17 @@ import io.agroal.api.AgroalDataSource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import io.restassured.http.ContentType;
+import io.restassured.response.Response;
 import jakarta.enterprise.inject.spi.CDI;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.anyOf;
@@ -18,6 +27,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @QuarkusTest
 @TestProfile(IntegrationTestProfile.class)
@@ -28,6 +38,7 @@ class TransactionApiIT {
     private static final String USER_A = "user-a";
     private static final String USER_B = "user-b";
     private static final String AAPL_BUY_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    private static final String AAPL_SELL_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 
     @SuppressWarnings("unused")
     private final ConnectionHolder connectionHolder =
@@ -290,17 +301,18 @@ class TransactionApiIT {
     @Test
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-seed.sql")
     void givenSeededTransaction_whenDelete_thenRemovedForOwnerOnly() {
+        // The seeded SELL has no downstream dependents, so deleting it never oversells.
         given()
                 .header("X-User-Id", USER_A)
                 .when()
-                .delete("/api/transactions/" + AAPL_BUY_ID)
+                .delete("/api/transactions/" + AAPL_SELL_ID)
                 .then()
                 .statusCode(204);
 
         given()
                 .header("X-User-Id", USER_A)
                 .when()
-                .get("/api/transactions/" + AAPL_BUY_ID)
+                .get("/api/transactions/" + AAPL_SELL_ID)
                 .then()
                 .statusCode(404);
 
@@ -311,6 +323,84 @@ class TransactionApiIT {
                 .then()
                 .statusCode(200)
                 .body(equalTo("2"));
+    }
+
+    @Test
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-seed.sql")
+    void givenDeleteWouldOversellRemainingLedger_whenDelete_thenConflict() {
+        // Deleting the BUY leaves the seeded SELL (2 shares) with nothing to sell.
+        given()
+                .header("X-User-Id", USER_A)
+                .when()
+                .delete("/api/transactions/" + AAPL_BUY_ID)
+                .then()
+                .statusCode(409);
+
+        given()
+                .header("X-User-Id", USER_A)
+                .when()
+                .get("/api/transactions/" + AAPL_BUY_ID)
+                .then()
+                .statusCode(200);
+    }
+
+    @Test
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-seed.sql")
+    void givenConcurrentSellsExceedingHoldings_whenCreate_thenExactlyOneSucceeds() throws Exception {
+        // Seeded AAPL for user-a nets to 8 shares (10 bought, 2 sold). Two concurrent requests
+        // each selling all 8 shares must not both succeed - that would oversell the ledger.
+        // This is the race the per-(user,ticker) advisory lock (TransactionRepository
+        // .withTickersLocked) exists to close: without it, both requests would read the same
+        // "8 available" snapshot before either had written, and both would be accepted.
+        String body = """
+                {
+                  "ticker": "AAPL",
+                  "transactionType": "SELL",
+                  "assetType": "COMMON_STOCK",
+                  "quantity": 8,
+                  "price": 120,
+                  "currency": "USD",
+                  "transactionDate": "2024-01-10"
+                }
+                """;
+
+        CountDownLatch startGate = new CountDownLatch(1);
+        Callable<Response> request = () -> {
+            startGate.await();
+            return given()
+                    .header("X-User-Id", USER_A)
+                    .contentType(ContentType.JSON)
+                    .body(body)
+                    .when()
+                    .post("/api/transactions");
+        };
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        List<Integer> statusCodes;
+        try {
+            Future<Response> first = executor.submit(request);
+            Future<Response> second = executor.submit(request);
+            startGate.countDown();
+
+            statusCodes = List.of(
+                    first.get(10, TimeUnit.SECONDS).getStatusCode(),
+                    second.get(10, TimeUnit.SECONDS).getStatusCode());
+        } finally {
+            executor.shutdownNow();
+        }
+
+        long successCount = statusCodes.stream().filter(status -> status == 201).count();
+        long conflictCount = statusCodes.stream().filter(status -> status == 409).count();
+        assertEquals(1, successCount, "exactly one concurrent sell must succeed, got " + statusCodes);
+        assertEquals(1, conflictCount, "the other must be rejected as a conflict, got " + statusCodes);
+
+        given()
+                .header("X-User-Id", USER_A)
+                .when()
+                .get("/api/positions/ticker/AAPL")
+                .then()
+                .statusCode(200)
+                .body("totalQuantity", equalTo(0.0f));
     }
 
     @Test

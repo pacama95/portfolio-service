@@ -70,6 +70,19 @@ class PortfolioControllerTest {
         assertEquals(responseBody, response.getEntity());
     }
 
+    @Test
+    void givenInconsistentLedger_whenSummary_thenReturns409() {
+        when(getPortfolioSummaryUseCase.execute(GetPortfolioSummaryUseCase.Query.all(USER_ID)))
+                .thenReturn(Uni.createFrom().item(new GetPortfolioSummaryUseCase.Result.Conflict("Oversell for AAPL")));
+
+        Response response = controller.summary()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
+    }
+
     private static PortfolioSummary sampleSummary() {
         return PortfolioSummary.of(
                 Currency.USD,

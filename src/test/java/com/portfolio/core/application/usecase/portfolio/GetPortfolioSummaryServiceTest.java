@@ -23,6 +23,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 class GetPortfolioSummaryServiceTest {
@@ -200,6 +201,23 @@ class GetPortfolioSummaryServiceTest {
         assertEquals(0, BigDecimal.ZERO.compareTo(summary.totalMarketValue()));
         assertEquals(0, new BigDecimal("1000").compareTo(summary.totalCost()));
         assertEquals(1, summary.totalPositions());
+    }
+
+    @Test
+    void givenInconsistentLedger_whenExecute_thenConflict() {
+        List<Transaction> txs = List.of(
+                tx("AAPL", TransactionType.BUY, "5", "100", Currency.USD, LocalDate.of(2024, 1, 1)),
+                tx("AAPL", TransactionType.SELL, "10", "100", Currency.USD, LocalDate.of(2024, 1, 2)));
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(txs));
+
+        GetPortfolioSummaryUseCase.Result result = service.execute(GetPortfolioSummaryUseCase.Query.all(USER))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetPortfolioSummaryUseCase.Result.Conflict conflict =
+                assertInstanceOf(GetPortfolioSummaryUseCase.Result.Conflict.class, result);
+        assertTrue(conflict.message().contains("AAPL"));
     }
 
     private static Transaction tx(

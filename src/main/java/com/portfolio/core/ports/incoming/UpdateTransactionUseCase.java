@@ -18,6 +18,7 @@ public interface UpdateTransactionUseCase {
         record Success(Transaction transaction) implements Result {}
         record NotFound(UUID id) implements Result {}
         record InvalidRequest(String message) implements Result {}
+        record Conflict(String message) implements Result {}
     }
 
     record Command(

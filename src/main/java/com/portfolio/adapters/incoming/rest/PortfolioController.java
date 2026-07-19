@@ -9,6 +9,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.jboss.logging.Logger;
 import org.eclipse.microprofile.openapi.annotations.enums.ParameterIn;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
@@ -17,6 +18,8 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 @Produces(MediaType.APPLICATION_JSON)
 @Tag(name = "Portfolio", description = "Portfolio summary derived from the ledger")
 public class PortfolioController {
+
+    private static final Logger LOG = Logger.getLogger(PortfolioController.class);
 
     private final GetPortfolioSummaryUseCase getPortfolioSummaryUseCase;
     private final PositionRestMapper mapper;
@@ -41,6 +44,10 @@ public class PortfolioController {
                 .map(result -> switch (result) {
                     case GetPortfolioSummaryUseCase.Result.Success success ->
                             Response.ok(mapper.toResponse(success.summary())).build();
+                    case GetPortfolioSummaryUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Portfolio summary conflict reason=%s", conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
+                    }
                 });
     }
 
@@ -53,6 +60,10 @@ public class PortfolioController {
                 .map(result -> switch (result) {
                     case GetPortfolioSummaryUseCase.Result.Success success ->
                             Response.ok(mapper.toResponse(success.summary())).build();
+                    case GetPortfolioSummaryUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Portfolio summary conflict reason=%s", conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
+                    }
                 });
     }
 }

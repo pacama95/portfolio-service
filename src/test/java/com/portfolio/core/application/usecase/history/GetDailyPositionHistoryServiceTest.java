@@ -22,6 +22,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -128,6 +129,25 @@ class GetDailyPositionHistoryServiceTest {
         DailyPositionSnapshot snapshot = success.snapshots().getFirst();
         assertEquals("AAPL", snapshot.ticker());
         verify(transactionRepository).findByTicker(eq(USER), eq("AAPL"));
+    }
+
+    @Test
+    void givenInconsistentLedger_whenExecute_thenConflict() {
+        List<Transaction> txs = List.of(
+                tx("AAPL", TransactionType.BUY, "5", "100", LocalDate.of(2024, 1, 1)),
+                tx("AAPL", TransactionType.SELL, "10", "100", LocalDate.of(2024, 1, 2)));
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(txs));
+
+        GetDailyPositionHistoryUseCase.Result result = service.execute(
+                new GetDailyPositionHistoryUseCase.Query(
+                        USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31), null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetDailyPositionHistoryUseCase.Result.Conflict conflict =
+                assertInstanceOf(GetDailyPositionHistoryUseCase.Result.Conflict.class, result);
+        assertTrue(conflict.message().contains("AAPL"));
     }
 
     private static Transaction tx(String ticker, TransactionType type, String qty, String price, LocalDate date) {

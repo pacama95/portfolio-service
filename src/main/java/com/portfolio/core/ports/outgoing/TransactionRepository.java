@@ -8,8 +8,10 @@ import io.smallrye.mutiny.Uni;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 public interface TransactionRepository {
 
@@ -36,4 +38,18 @@ public interface TransactionRepository {
     Uni<Long> countByTicker(UserId userId, String ticker);
 
     Uni<List<String>> findDistinctTickers();
+
+    /**
+     * Acquires a transaction-scoped lock per (userId, ticker) pair — released automatically
+     * when the transaction ends — then hands the caller each ticker's current transactions
+     * (keyed by ticker) so it can validate a candidate change against a consistent view before
+     * writing. Without this, a read-validate-write sequence spanning two separate reactive
+     * sessions/transactions is a classic TOCTOU race: a concurrent write for the same ticker
+     * between the read and the write would go unnoticed by the in-memory ledger replay.
+     * Multiple tickers are always locked in a fixed (sorted) order to avoid deadlocking against
+     * another call locking the same two tickers in the opposite order (e.g. two concurrent
+     * ticker-renaming updates crossing each other).
+     */
+    <T> Uni<T> withTickersLocked(
+            UserId userId, List<String> tickers, Function<Map<String, List<Transaction>>, Uni<T>> action);
 }

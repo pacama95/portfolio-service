@@ -23,7 +23,7 @@ class ProcessTransactionCreatedServiceTest {
 ```
 
 - Assert on the sealed `Result` variants (e.g. `assertInstanceOf(Result.Success.class, result)`), not on side effects alone.
-- Mutiny results: unwrap with `.await().indefinitely()` or `UniAssertSubscriber` — never block with raw threads or sleeps.
+- Mutiny results: subscribe with `UniAssertSubscriber` (`.subscribe().withSubscriber(UniAssertSubscriber.create()).awaitItem().getItem()` for items; `.awaitFailure().assertFailedWith(...)` for failures). Do not use `.await().indefinitely()`. Never block with raw threads or sleeps.
 - MapStruct mappers are tested with the generated implementation (`Mappers.getMapper(...)` or `new XxxMapperImpl()`), not mocks.
 
 ## Integration Tests

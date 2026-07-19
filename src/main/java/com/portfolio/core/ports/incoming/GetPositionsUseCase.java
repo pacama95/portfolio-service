@@ -12,6 +12,7 @@ public interface GetPositionsUseCase {
 
     sealed interface Result {
         record Success(List<Position> positions) implements Result {}
+        record Conflict(String message) implements Result {}
     }
 
     record Query(UserId userId, boolean activeOnly) {

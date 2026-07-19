@@ -12,6 +12,7 @@ public interface DeleteTransactionUseCase {
     sealed interface Result {
         record Success(UUID id) implements Result {}
         record NotFound(UUID id) implements Result {}
+        record Conflict(String message) implements Result {}
     }
 
     record Command(UserId userId, UUID id) {

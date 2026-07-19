@@ -124,6 +124,23 @@ class GetPerformanceInputsServiceTest {
     }
 
     @Test
+    void givenValuationConflict_whenExecute_thenPropagatesConflict() {
+        when(valuationHistoryUseCase.execute(any(GetPortfolioValuationHistoryUseCase.Query.class)))
+                .thenReturn(Uni.createFrom().item(
+                        new GetPortfolioValuationHistoryUseCase.Result.Conflict("Oversell for AAPL")));
+
+        GetPerformanceInputsUseCase.Result result = service.execute(
+                new GetPerformanceInputsUseCase.Query(USER, FROM, TO))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetPerformanceInputsUseCase.Result.Conflict conflict =
+                assertInstanceOf(GetPerformanceInputsUseCase.Result.Conflict.class, result);
+        assertEquals("Oversell for AAPL", conflict.message());
+    }
+
+    @Test
     void givenCapitalFlowsInvalidRequest_whenExecute_thenPropagatesInvalidRequest() {
         when(valuationHistoryUseCase.execute(any(GetPortfolioValuationHistoryUseCase.Query.class)))
                 .thenReturn(Uni.createFrom().item(new GetPortfolioValuationHistoryUseCase.Result.Success(List.of())));

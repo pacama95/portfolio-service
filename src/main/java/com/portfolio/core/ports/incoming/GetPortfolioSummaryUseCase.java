@@ -10,6 +10,7 @@ public interface GetPortfolioSummaryUseCase {
 
     sealed interface Result {
         record Success(PortfolioSummary summary) implements Result {}
+        record Conflict(String message) implements Result {}
     }
 
     record Query(UserId userId, boolean activeOnly) {

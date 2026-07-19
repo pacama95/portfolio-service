@@ -13,6 +13,7 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.openapi.annotations.Operation;
@@ -20,6 +21,8 @@ import org.jboss.logging.Logger;
 import org.eclipse.microprofile.openapi.annotations.enums.ParameterIn;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
+
+import java.util.Map;
 
 @Path("/api/positions")
 @Produces(MediaType.APPLICATION_JSON)
@@ -56,6 +59,10 @@ public class PositionController {
                 .map(result -> switch (result) {
                     case GetPositionsUseCase.Result.Success success ->
                             Response.ok(success.positions().stream().map(mapper::toResponse).toList()).build();
+                    case GetPositionsUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Positions conflict reason=%s", conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
+                    }
                 });
     }
 
@@ -67,6 +74,10 @@ public class PositionController {
                 .map(result -> switch (result) {
                     case GetPositionsUseCase.Result.Success success ->
                             Response.ok(success.positions().stream().map(mapper::toResponse).toList()).build();
+                    case GetPositionsUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Positions conflict reason=%s", conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
+                    }
                 });
     }
 
@@ -102,6 +113,7 @@ public class PositionController {
         return getPositionsUseCase.execute(GetPositionsUseCase.Query.all(userContext.requireUserId()))
                 .map(result -> switch (result) {
                     case GetPositionsUseCase.Result.Success success -> (long) success.positions().size();
+                    case GetPositionsUseCase.Result.Conflict conflict -> throw conflictResponse(conflict.message());
                 });
     }
 
@@ -112,6 +124,7 @@ public class PositionController {
         return getPositionsUseCase.execute(GetPositionsUseCase.Query.active(userContext.requireUserId()))
                 .map(result -> switch (result) {
                     case GetPositionsUseCase.Result.Success success -> (long) success.positions().size();
+                    case GetPositionsUseCase.Result.Conflict conflict -> throw conflictResponse(conflict.message());
                 });
     }
 
@@ -133,5 +146,11 @@ public class PositionController {
                         yield Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
                     }
                 });
+    }
+
+    private static WebApplicationException conflictResponse(String message) {
+        LOG.warnf("Positions conflict reason=%s", message);
+        return new WebApplicationException(
+                Response.status(Response.Status.CONFLICT).entity(Map.of("error", "CONFLICT", "message", message)).build());
     }
 }

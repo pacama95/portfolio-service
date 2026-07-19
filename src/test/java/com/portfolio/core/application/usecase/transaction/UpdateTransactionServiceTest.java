@@ -17,8 +17,11 @@ import org.mockito.Mockito;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -47,6 +50,7 @@ class UpdateTransactionServiceTest {
             Transaction saved = invocation.getArgument(0, Transaction.class);
             return Uni.createFrom().item(saved);
         });
+        stubLock(Map.of());
 
         UpdateTransactionUseCase.Result result = service.execute(new UpdateTransactionUseCase.Command(
                 USER, id, null, null, null, new BigDecimal("120"), null, null, null, "updated notes",
@@ -115,6 +119,7 @@ class UpdateTransactionServiceTest {
             Transaction saved = invocation.getArgument(0, Transaction.class);
             return Uni.createFrom().item(saved);
         });
+        stubLock(Map.of());
 
         service.execute(new UpdateTransactionUseCase.Command(
                 USER, id, "msft", null, null, null, null, null, null, null,
@@ -137,6 +142,7 @@ class UpdateTransactionServiceTest {
             Transaction saved = invocation.getArgument(0, Transaction.class);
             return Uni.createFrom().item(saved);
         });
+        stubLock(Map.of());
 
         service.execute(new UpdateTransactionUseCase.Command(
                 USER, id, "  msft  ", null, null, null, null, null, null, null,
@@ -169,7 +175,20 @@ class UpdateTransactionServiceTest {
     @Test
     void givenOnlyTransactionTypeUpdate_whenExecute_thenUpdatesTransactionType() {
         UUID id = UUID.randomUUID();
-        stubExisting(id, fullTransaction(id));
+        Transaction existing = fullTransaction(id);
+        when(repository.findById(USER, id)).thenReturn(Uni.createFrom().item(Optional.of(existing)));
+        when(repository.save(any(Transaction.class))).thenAnswer(invocation -> {
+            Transaction saved = invocation.getArgument(0, Transaction.class);
+            return Uni.createFrom().item(saved);
+        });
+        // Turning this BUY into a SELL only makes ledger sense with prior shares to sell.
+        Transaction priorBuy = new Transaction(
+                UUID.randomUUID(), USER, "AAPL", TransactionType.BUY, AssetType.COMMON_STOCK,
+                new BigDecimal("20"), new BigDecimal("90"), BigDecimal.ZERO, Currency.USD,
+                LocalDate.of(2023, 12, 1), null, false, BigDecimal.ONE, Currency.USD,
+                "NASDAQ", "US", "Apple Inc",
+                OffsetDateTime.parse("2023-12-01T00:00:00Z"), OffsetDateTime.parse("2023-12-01T00:00:00Z"));
+        stubLock(Map.of("AAPL", List.of(existing, priorBuy)));
 
         UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
                 UpdateTransactionUseCase.Result.Success.class,
@@ -180,6 +199,74 @@ class UpdateTransactionServiceTest {
                 .getItem());
 
         assertEquals(TransactionType.SELL, success.transaction().transactionType());
+    }
+
+    @Test
+    void givenTransactionTypeUpdateWouldOversell_whenExecute_thenConflict() {
+        UUID id = UUID.randomUUID();
+        stubExisting(id, fullTransaction(id));
+
+        UpdateTransactionUseCase.Result result = service.execute(update(
+                id, null, TransactionType.SELL, null, null, null, null, null, null,
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(UpdateTransactionUseCase.Result.Conflict.class, result);
+    }
+
+    @Test
+    void givenTickerChangeWouldOversellOldTicker_whenExecute_thenConflict() {
+        UUID buyId = UUID.randomUUID();
+        Transaction buy = fullTransaction(buyId);
+        Transaction sell = new Transaction(
+                UUID.randomUUID(), USER, "AAPL", TransactionType.SELL, AssetType.COMMON_STOCK,
+                new BigDecimal("10"), new BigDecimal("110"), BigDecimal.ZERO, Currency.USD,
+                LocalDate.of(2024, 2, 1), null, false, BigDecimal.ONE, Currency.USD,
+                "NASDAQ", "US", "Apple Inc",
+                OffsetDateTime.parse("2024-02-01T00:00:00Z"), OffsetDateTime.parse("2024-02-01T00:00:00Z"));
+        when(repository.findById(USER, buyId)).thenReturn(Uni.createFrom().item(Optional.of(buy)));
+        stubLock(Map.of("AAPL", List.of(buy, sell)));
+
+        // Moving the BUY away to MSFT would leave the AAPL SELL with nothing to sell.
+        UpdateTransactionUseCase.Result result = service.execute(update(
+                buyId, "MSFT", null, null, null, null, null, null, null,
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(UpdateTransactionUseCase.Result.Conflict.class, result);
+    }
+
+    @Test
+    void givenTickerChangeKeepsNewTickerLedgerValid_whenExecute_thenSuccess() {
+        UUID id = UUID.randomUUID();
+        Transaction existing = fullTransaction(id);
+        when(repository.findById(USER, id)).thenReturn(Uni.createFrom().item(Optional.of(existing)));
+        Transaction msftSell = new Transaction(
+                UUID.randomUUID(), USER, "MSFT", TransactionType.SELL, AssetType.COMMON_STOCK,
+                new BigDecimal("5"), new BigDecimal("200"), BigDecimal.ZERO, Currency.USD,
+                LocalDate.of(2024, 2, 1), null, false, BigDecimal.ONE, Currency.USD,
+                "NASDAQ", "US", "Microsoft Inc",
+                OffsetDateTime.parse("2024-02-01T00:00:00Z"), OffsetDateTime.parse("2024-02-01T00:00:00Z"));
+        stubLock(Map.of("AAPL", List.of(existing), "MSFT", List.of(msftSell)));
+        when(repository.save(any(Transaction.class))).thenAnswer(invocation -> {
+            Transaction saved = invocation.getArgument(0, Transaction.class);
+            return Uni.createFrom().item(saved);
+        });
+
+        // Moving this BUY to MSFT keeps it BUY-typed via the command below (ticker only changes);
+        // the pre-existing MSFT SELL on 2/1 has shares to sell once this BUY (1/1) lands there.
+        UpdateTransactionUseCase.Result result = service.execute(update(
+                id, "MSFT", null, null, null, null, null, null, null,
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(UpdateTransactionUseCase.Result.Success.class, result);
     }
 
     @Test
@@ -348,6 +435,15 @@ class UpdateTransactionServiceTest {
         when(repository.save(any(Transaction.class))).thenAnswer(invocation -> {
             Transaction saved = invocation.getArgument(0, Transaction.class);
             return Uni.createFrom().item(saved);
+        });
+        stubLock(Map.of());
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubLock(Map<String, List<Transaction>> byTicker) {
+        when(repository.withTickersLocked(any(), any(), any())).thenAnswer(invocation -> {
+            Function<Map<String, List<Transaction>>, Uni<Object>> action = invocation.getArgument(2);
+            return action.apply(byTicker);
         });
     }
 

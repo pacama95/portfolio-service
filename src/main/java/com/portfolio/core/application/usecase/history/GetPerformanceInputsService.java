@@ -64,6 +64,9 @@ public class GetPerformanceInputsService implements GetPerformanceInputsUseCase 
                     if (valuationResult instanceof GetPortfolioValuationHistoryUseCase.Result.InvalidRequest invalid) {
                         return Uni.createFrom().item(new Result.InvalidRequest(invalid.message()));
                     }
+                    if (valuationResult instanceof GetPortfolioValuationHistoryUseCase.Result.Conflict conflict) {
+                        return Uni.createFrom().item(new Result.Conflict(conflict.message()));
+                    }
                     return capitalFlowsUseCase.execute(
                                     new GetCapitalFlowsUseCase.Query(query.userId(), query.from(), query.to()))
                             .flatMap(flowsResult -> {

@@ -167,23 +167,24 @@ class LedgerReplayTest {
     }
 
     @Test
-    void givenOversell_whenReplayAll_thenThrowsIllegalStateException() {
+    void givenOversell_whenReplayAll_thenThrowsLedgerInconsistencyException() {
         List<Transaction> txs = List.of(
                 tx("AAPL", TransactionType.BUY, "5", "100", "0", LocalDate.of(2024, 1, 1)),
                 tx("AAPL", TransactionType.SELL, "10", "100", "0", LocalDate.of(2024, 1, 2)));
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> LedgerReplay.replayAll(txs));
+        LedgerReplay.LedgerInconsistencyException ex = assertThrows(
+                LedgerReplay.LedgerInconsistencyException.class, () -> LedgerReplay.replayAll(txs));
 
         assertTrue(ex.getMessage().contains("Oversell"));
         assertTrue(ex.getMessage().contains("AAPL"));
     }
 
     @Test
-    void givenInvalidInput_whenReplayAll_thenThrowsIllegalArgumentException() {
+    void givenInvalidInput_whenReplayAll_thenThrowsLedgerInconsistencyException() {
         List<Transaction> txs = List.of(
                 tx("AAPL", TransactionType.BUY, "-1", "100", "0", LocalDate.of(2024, 1, 1)));
 
-        assertThrows(IllegalArgumentException.class, () -> LedgerReplay.replayAll(txs));
+        assertThrows(LedgerReplay.LedgerInconsistencyException.class, () -> LedgerReplay.replayAll(txs));
     }
 
     @Test
@@ -245,18 +246,14 @@ class LedgerReplayTest {
     }
 
     @Test
-    void givenFailedApply_whenDailySnapshots_thenSkipsFailedTradeDay() {
+    void givenOversellMidLedger_whenDailySnapshots_thenThrowsLedgerInconsistencyException() {
         List<Transaction> txs = List.of(
                 tx("AAPL", TransactionType.BUY, "5", "100", "0", LocalDate.of(2024, 1, 1)),
                 tx("AAPL", TransactionType.SELL, "10", "100", "0", LocalDate.of(2024, 1, 5)),
                 tx("AAPL", TransactionType.BUY, "3", "100", "0", LocalDate.of(2024, 1, 10)));
 
-        List<DailyPositionSnapshot> snapshots = LedgerReplay.dailySnapshots(
-                txs, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31));
-
-        assertEquals(2, snapshots.size());
-        assertEquals(LocalDate.of(2024, 1, 1), snapshots.get(0).snapshotDate());
-        assertEquals(LocalDate.of(2024, 1, 10), snapshots.get(1).snapshotDate());
+        assertThrows(LedgerReplay.LedgerInconsistencyException.class, () -> LedgerReplay.dailySnapshots(
+                txs, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31)));
     }
 
     @Test

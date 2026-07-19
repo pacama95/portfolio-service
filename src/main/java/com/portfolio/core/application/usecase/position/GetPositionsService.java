@@ -35,7 +35,11 @@ public class GetPositionsService implements GetPositionsUseCase {
                         : positions)
                 .flatMap(this::enrichWithPrices)
                 .invoke(positions -> LOG.infof("Returning positions count=%d", positions.size()))
-                .map(Result.Success::new);
+                .<Result>map(Result.Success::new)
+                .onFailure(LedgerReplay.LedgerInconsistencyException.class).recoverWithItem(failure -> {
+                    LOG.warnf(failure, "Inconsistent ledger userId=%s", query.userId());
+                    return new Result.Conflict(failure.getMessage());
+                });
     }
 
     private Uni<List<Position>> enrichWithPrices(List<Position> positions) {

@@ -61,7 +61,11 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
         return transactionRepository.findAll(query.userId())
                 .flatMap(transactions -> buildValuations(transactions, query.from(), query.to()))
                 .invoke(valuations -> LOG.infof("Portfolio valuation history days=%d", valuations.size()))
-                .map(Result.Success::new);
+                .<Result>map(Result.Success::new)
+                .onFailure(LedgerReplay.LedgerInconsistencyException.class).recoverWithItem(failure -> {
+                    LOG.warnf(failure, "Inconsistent ledger userId=%s", query.userId());
+                    return new Result.Conflict(failure.getMessage());
+                });
     }
 
     private Uni<List<DailyValuation>> buildValuations(

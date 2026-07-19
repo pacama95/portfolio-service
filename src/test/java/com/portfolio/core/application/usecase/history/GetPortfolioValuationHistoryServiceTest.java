@@ -235,6 +235,24 @@ class GetPortfolioValuationHistoryServiceTest {
         assertEquals(0, BigDecimal.ZERO.compareTo(valuation.totalCost()));
     }
 
+    @Test
+    void givenInconsistentLedger_whenExecute_thenConflict() {
+        LocalDate date = LocalDate.of(2024, 1, 10);
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
+                tx("AAPL", TransactionType.BUY, "5", "100", LocalDate.of(2024, 1, 1)),
+                tx("AAPL", TransactionType.SELL, "10", "100", LocalDate.of(2024, 1, 5)))));
+
+        GetPortfolioValuationHistoryUseCase.Result result = service.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(USER, LocalDate.of(2024, 1, 1), date))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetPortfolioValuationHistoryUseCase.Result.Conflict conflict =
+                assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Conflict.class, result);
+        assertTrue(conflict.message().contains("AAPL"));
+    }
+
     private static Transaction tx(String ticker, TransactionType type, String qty, String price, LocalDate date) {
         return tx(ticker, type, qty, price, date, Currency.USD);
     }

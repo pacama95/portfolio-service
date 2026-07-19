@@ -101,6 +101,24 @@ class DailyHistoryControllerTest {
     }
 
     @Test
+    void givenInconsistentLedger_whenPositions_thenReturns409() {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        LocalDate to = LocalDate.of(2024, 1, 31);
+
+        when(dailyPositionHistoryUseCase.execute(
+                new GetDailyPositionHistoryUseCase.Query(USER_ID, from, to, null)))
+                .thenReturn(Uni.createFrom().item(
+                        new GetDailyPositionHistoryUseCase.Result.Conflict("Oversell for AAPL")));
+
+        Response response = controller.positions(from, to, null)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
+    }
+
+    @Test
     void givenValidSymbolsCsv_whenPrices_thenReturns200AndParsesSymbols() {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 31);

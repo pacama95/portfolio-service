@@ -16,10 +16,16 @@ import org.mockito.Mockito;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,6 +45,7 @@ class CreateTransactionServiceTest {
             Transaction saved = invocation.getArgument(0, Transaction.class);
             return Uni.createFrom().item(saved);
         });
+        stubLock(Map.of());
 
         CreateTransactionUseCase.Command command = new CreateTransactionUseCase.Command(
                 UserId.of("user-1"),
@@ -71,6 +78,44 @@ class CreateTransactionServiceTest {
         ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
         verify(repository).save(captor.capture());
         assertEquals("AAPL", captor.getValue().ticker());
+    }
+
+    @Test
+    void givenSellExceedingExistingHoldings_whenExecute_thenConflict() {
+        UserId userId = UserId.of("user-1");
+        Transaction existingBuy = new Transaction(
+                UUID.randomUUID(), userId, "AAPL", TransactionType.BUY, AssetType.COMMON_STOCK,
+                new BigDecimal("5"), new BigDecimal("100"), BigDecimal.ZERO, Currency.USD,
+                LocalDate.of(2024, 1, 1), null, false, BigDecimal.ONE, Currency.USD,
+                "NASDAQ", "US", "Apple",
+                OffsetDateTime.parse("2024-01-01T00:00:00Z"), OffsetDateTime.parse("2024-01-01T00:00:00Z"));
+        stubLock(Map.of("AAPL", List.of(existingBuy)));
+
+        CreateTransactionUseCase.Command command = new CreateTransactionUseCase.Command(
+                userId,
+                "AAPL",
+                TransactionType.SELL,
+                AssetType.COMMON_STOCK,
+                new BigDecimal("10"),
+                new BigDecimal("110"),
+                BigDecimal.ZERO,
+                Currency.USD,
+                LocalDate.of(2024, 1, 2),
+                null,
+                false,
+                BigDecimal.ONE,
+                Currency.USD,
+                "NASDAQ",
+                "US",
+                "Apple");
+
+        CreateTransactionUseCase.Result result = service.execute(command)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(CreateTransactionUseCase.Result.Conflict.class, result);
+        verify(repository, never()).save(any());
     }
 
     @Test
@@ -158,6 +203,7 @@ class CreateTransactionServiceTest {
             Transaction saved = invocation.getArgument(0, Transaction.class);
             return Uni.createFrom().item(saved);
         });
+        stubLock(Map.of());
 
         CreateTransactionUseCase.Result result = service.execute(
                 validCommandBuilder().price(BigDecimal.ZERO).build())
@@ -198,6 +244,7 @@ class CreateTransactionServiceTest {
             Transaction saved = invocation.getArgument(0, Transaction.class);
             return Uni.createFrom().item(saved);
         });
+        stubLock(Map.of());
 
         CreateTransactionUseCase.Result result = service.execute(validCommandBuilder().fees(null).build())
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -215,6 +262,7 @@ class CreateTransactionServiceTest {
             Transaction saved = invocation.getArgument(0, Transaction.class);
             return Uni.createFrom().item(saved);
         });
+        stubLock(Map.of());
 
         CreateTransactionUseCase.Result result = service.execute(validCommandBuilder().fractional(null).build())
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -232,6 +280,7 @@ class CreateTransactionServiceTest {
             Transaction saved = invocation.getArgument(0, Transaction.class);
             return Uni.createFrom().item(saved);
         });
+        stubLock(Map.of());
 
         CreateTransactionUseCase.Result result = service.execute(
                 validCommandBuilder().fractionalMultiplier(null).build())
@@ -242,6 +291,14 @@ class CreateTransactionServiceTest {
         CreateTransactionUseCase.Result.Success success =
                 assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);
         assertEquals(0, BigDecimal.ONE.compareTo(success.transaction().fractionalMultiplier()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubLock(Map<String, List<Transaction>> byTicker) {
+        when(repository.withTickersLocked(any(), any(), any())).thenAnswer(invocation -> {
+            Function<Map<String, List<Transaction>>, Uni<Object>> action = invocation.getArgument(2);
+            return action.apply(byTicker);
+        });
     }
 
     private static CommandBuilder validCommandBuilder() {

@@ -68,6 +68,10 @@ public class DailyHistoryController {
                         LOG.warnf("Daily position history rejected reason=%s", invalid.message());
                         yield Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
                     }
+                    case GetDailyPositionHistoryUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Daily position history conflict reason=%s", conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
+                    }
                 });
     }
 
@@ -106,6 +110,10 @@ public class DailyHistoryController {
                         LOG.warnf("Valuation history rejected reason=%s", invalid.message());
                         yield Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
                     }
+                    case GetPortfolioValuationHistoryUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Valuation history conflict reason=%s", conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
+                    }
                 });
     }
 
@@ -137,6 +145,10 @@ public class DailyHistoryController {
                     case GetPerformanceInputsUseCase.Result.InvalidRequest invalid -> {
                         LOG.warnf("Performance inputs rejected reason=%s", invalid.message());
                         yield Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
+                    }
+                    case GetPerformanceInputsUseCase.Result.Conflict conflict -> {
+                        LOG.warnf("Performance inputs conflict reason=%s", conflict.message());
+                        yield Response.status(Response.Status.CONFLICT).entity(conflict).build();
                     }
                 });
     }
