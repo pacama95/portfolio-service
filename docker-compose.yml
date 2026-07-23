@@ -1,7 +1,6 @@
 services:
   postgresql:
     image: postgres:15-alpine
-    container_name: portfolio-service-postgres
     environment:
       POSTGRES_DB: portfolio_service_db
       POSTGRES_USER: postgres
@@ -22,7 +21,6 @@ services:
 
   adminer:
     image: adminer:4.8.1
-    container_name: portfolio-service-adminer
     ports:
       - "${PORTFOLIO_SERVICE_ADMINER_PORT:-8094}:8080"
     environment:
@@ -40,7 +38,6 @@ services:
     build:
       context: .
       dockerfile: ${DOCKERFILE:-Dockerfile}
-    container_name: portfolio-service-application
     ports:
       - "${PORTFOLIO_SERVICE_PORT:-8087}:8087"
     environment:
