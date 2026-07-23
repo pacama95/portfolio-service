@@ -32,7 +32,8 @@ public class IntegrationTestProfile implements QuarkusTestProfile {
     public List<TestResourceEntry> testResources() {
         return List.of(
                 new TestResourceEntry(PostgresTestResource.class),
-                new TestResourceEntry(WireMockMarketDataResource.class)
+                new TestResourceEntry(WireMockMarketDataResource.class),
+                new TestResourceEntry(RedisTestResource.class)
         );
     }
 }
