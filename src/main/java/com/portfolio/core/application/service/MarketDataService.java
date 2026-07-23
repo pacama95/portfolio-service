@@ -23,6 +23,8 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 /**
@@ -37,6 +39,12 @@ public class MarketDataService implements MarketDataPort {
     private final MarketDataProviderPort provider;
     private final Duration spotPriceFreshness;
     private final Duration fxFreshness;
+
+    // Coalesces concurrent provider-fetch-and-persist calls for the identical
+    // (symbol, from, to) so a frontend reload firing duplicate requests hits
+    // TwelveData once, not N times, and doesn't race on market_data_coverage inserts.
+    private final ConcurrentMap<String, Uni<List<PriceHistoryEntry>>> inFlightPriceFetches = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Uni<List<FxRateEntry>>> inFlightFxFetches = new ConcurrentHashMap<>();
 
     public MarketDataService(
             MarketDataStorePort store,
@@ -135,10 +143,19 @@ public class MarketDataService implements MarketDataPort {
                                 LOG.infof(
                                         "Fetching price history from provider symbol=%s from=%s to=%s",
                                         normalized, fetchFrom, fetchTo);
-                                return provider.fetchPriceHistory(normalized, fetchFrom, fetchTo)
-                                        .flatMap(fetched -> persistPriceFetch(normalized, from, effectiveTo, fetched));
+                                return fetchAndPersistPriceOnce(normalized, from, effectiveTo, fetchFrom, fetchTo);
                             });
                 });
+    }
+
+    private Uni<List<PriceHistoryEntry>> fetchAndPersistPriceOnce(
+            String symbol, LocalDate from, LocalDate effectiveTo, LocalDate fetchFrom, LocalDate fetchTo) {
+        String key = "PRICE:" + symbol + ":" + from + ":" + effectiveTo;
+        return inFlightPriceFetches.computeIfAbsent(key, ignored ->
+                provider.fetchPriceHistory(symbol, fetchFrom, fetchTo)
+                        .flatMap(fetched -> persistPriceFetch(symbol, from, effectiveTo, fetched))
+                        .onTermination().invoke(() -> inFlightPriceFetches.remove(key))
+                        .memoize().indefinitely());
     }
 
     private Uni<List<PriceHistoryEntry>> persistPriceFetch(
@@ -184,11 +201,21 @@ public class MarketDataService implements MarketDataPort {
                                 LOG.infof(
                                         "Fetching FX history from provider symbol=%s from=%s to=%s",
                                         symbol, missing.getFirst(), missing.getLast());
-                                return provider.fetchFxHistory(base, quote, missing.getFirst(), missing.getLast())
-                                        .flatMap(fetched -> persistFxFetch(
-                                                base, quote, symbol, from, effectiveTo, fetched));
+                                return fetchAndPersistFxOnce(
+                                        base, quote, symbol, from, effectiveTo, missing.getFirst(), missing.getLast());
                             });
                 });
+    }
+
+    private Uni<List<FxRateEntry>> fetchAndPersistFxOnce(
+            Currency base, Currency quote, String symbol, LocalDate from, LocalDate effectiveTo,
+            LocalDate fetchFrom, LocalDate fetchTo) {
+        String key = "FX:" + symbol + ":" + from + ":" + effectiveTo;
+        return inFlightFxFetches.computeIfAbsent(key, ignored ->
+                provider.fetchFxHistory(base, quote, fetchFrom, fetchTo)
+                        .flatMap(fetched -> persistFxFetch(base, quote, symbol, from, effectiveTo, fetched))
+                        .onTermination().invoke(() -> inFlightFxFetches.remove(key))
+                        .memoize().indefinitely());
     }
 
     private Uni<List<FxRateEntry>> persistFxFetch(

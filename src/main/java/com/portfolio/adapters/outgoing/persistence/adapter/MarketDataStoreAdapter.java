@@ -201,18 +201,22 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
     @Override
     @WithTransaction
     public Uni<Void> recordCoverage(String coverageKind, String symbol, LocalDate from, LocalDate to, String provider) {
-        return Panache.getSession().flatMap(session -> {
-            MarketDataCoverageEntity entity = new MarketDataCoverageEntity();
-            entity.id = UUID.randomUUID();
-            entity.coverageKind = coverageKind;
-            entity.symbol = symbol;
-            entity.fromDate = from;
-            entity.toDate = to;
-            entity.provider = provider;
-            entity.fetchedAt = OffsetDateTime.now();
-            entity.createdAt = OffsetDateTime.now();
-            return session.merge(entity).replaceWithVoid();
-        });
+        OffsetDateTime now = OffsetDateTime.now();
+        return Panache.getSession().flatMap(session -> session.createNativeQuery(
+                                "insert into market_data_coverage "
+                                        + "(id, coverage_kind, symbol, from_date, to_date, provider, fetched_at, created_at) "
+                                        + "values (:id, :kind, :symbol, :from, :to, :provider, :fetchedAt, :createdAt) "
+                                        + "on conflict (coverage_kind, symbol, from_date, to_date) do nothing")
+                        .setParameter("id", UUID.randomUUID())
+                        .setParameter("kind", coverageKind)
+                        .setParameter("symbol", symbol)
+                        .setParameter("from", from)
+                        .setParameter("to", to)
+                        .setParameter("provider", provider)
+                        .setParameter("fetchedAt", now)
+                        .setParameter("createdAt", now)
+                        .executeUpdate())
+                .replaceWithVoid();
     }
 
     private PriceHistoryEntry toPriceEntry(PriceHistoryEntity entity) {
