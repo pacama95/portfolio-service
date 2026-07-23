@@ -118,24 +118,28 @@ public class MarketDataService implements MarketDataPort {
     public Uni<List<PriceHistoryEntry>> getPriceHistory(String symbol, LocalDate from, LocalDate to) {
         String normalized = symbol.trim().toUpperCase();
         LocalDate effectiveTo = clampToToday(to);
+        LocalDate settledTo = coverageUpperBound(effectiveTo);
         return store.findPrices(normalized, from, effectiveTo)
                 .flatMap(stored -> {
+                    if (settledTo.isBefore(from)) {
+                        return Uni.createFrom().item(stored);
+                    }
                     Set<LocalDate> present = stored.stream()
                             .map(PriceHistoryEntry::priceDate)
                             .collect(Collectors.toCollection(HashSet::new));
-                    List<LocalDate> missing = datesBetween(from, effectiveTo).stream()
+                    List<LocalDate> missing = datesBetween(from, settledTo).stream()
                             .filter(date -> !present.contains(date))
                             .toList();
                     if (missing.isEmpty()) {
-                        LOG.infof("Price history fully cached symbol=%s from=%s to=%s", normalized, from, effectiveTo);
+                        LOG.infof("Price history fully cached symbol=%s from=%s to=%s", normalized, from, settledTo);
                         return Uni.createFrom().item(stored);
                     }
-                    return store.hasCoverage("PRICE", normalized, from, effectiveTo)
+                    return store.hasCoverage("PRICE", normalized, from, settledTo)
                             .flatMap(covered -> {
                                 if (Boolean.TRUE.equals(covered)) {
                                     LOG.infof(
                                             "Price history covered without provider fetch symbol=%s from=%s to=%s",
-                                            normalized, from, effectiveTo);
+                                            normalized, from, settledTo);
                                     return Uni.createFrom().item(stored);
                                 }
                                 LocalDate fetchFrom = missing.getFirst();
@@ -178,24 +182,30 @@ public class MarketDataService implements MarketDataPort {
         }
         String symbol = fxSymbol(base, quote);
         LocalDate effectiveTo = clampToToday(to);
+        // See getPriceHistory: coverage stops at the settled ceiling (yesterday), so the read path
+        // must too, or today's ever-missing FX rate re-fetches on every request.
+        LocalDate settledTo = coverageUpperBound(effectiveTo);
         return store.findFxRates(base, quote, from, effectiveTo)
                 .flatMap(stored -> {
+                    if (settledTo.isBefore(from)) {
+                        return Uni.createFrom().item(stored);
+                    }
                     Set<LocalDate> present = stored.stream()
                             .map(FxRateEntry::rateDate)
                             .collect(Collectors.toCollection(HashSet::new));
-                    List<LocalDate> missing = datesBetween(from, effectiveTo).stream()
+                    List<LocalDate> missing = datesBetween(from, settledTo).stream()
                             .filter(date -> !present.contains(date))
                             .toList();
                     if (missing.isEmpty()) {
-                        LOG.infof("FX history fully cached symbol=%s from=%s to=%s", symbol, from, effectiveTo);
+                        LOG.infof("FX history fully cached symbol=%s from=%s to=%s", symbol, from, settledTo);
                         return Uni.createFrom().item(stored);
                     }
-                    return store.hasCoverage("FX", symbol, from, effectiveTo)
+                    return store.hasCoverage("FX", symbol, from, settledTo)
                             .flatMap(covered -> {
                                 if (Boolean.TRUE.equals(covered)) {
                                     LOG.infof(
                                             "FX history covered without provider fetch symbol=%s from=%s to=%s",
-                                            symbol, from, effectiveTo);
+                                            symbol, from, settledTo);
                                     return Uni.createFrom().item(stored);
                                 }
                                 LOG.infof(

@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -94,6 +95,30 @@ class MarketDataServiceTest {
 
         assertEquals(2, result.size());
         verify(provider, never()).fetchPriceHistory(any(), any(), any());
+    }
+
+    @Test
+    void givenRangeEndsTodayAndSettledDaysCached_whenGetPriceHistory_thenNoProviderCall() {
+        // Regression: today's EOD close is never recorded as coverage, so a to=today request must
+        // not treat today as an uncovered gap and re-fetch on every call.
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        LocalDate from = today.minusDays(3);
+        List<PriceHistoryEntry> stored = new ArrayList<>();
+        for (LocalDate day = from; !day.isAfter(yesterday); day = day.plusDays(1)) {
+            stored.add(new PriceHistoryEntry("AAPL", day, new BigDecimal("100"), null, Currency.USD,
+                    OffsetDateTime.now()));
+        }
+        when(store.findPrices("AAPL", from, today)).thenReturn(Uni.createFrom().item(stored));
+
+        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, today)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(stored.size(), result.size());
+        verify(provider, never()).fetchPriceHistory(any(), any(), any());
+        verify(store, never()).hasCoverage(any(), any(), any(), any());
     }
 
     @Test
