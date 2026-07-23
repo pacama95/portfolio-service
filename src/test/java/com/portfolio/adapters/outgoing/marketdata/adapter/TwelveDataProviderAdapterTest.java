@@ -1,8 +1,11 @@
 package com.portfolio.adapters.outgoing.marketdata.adapter;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.portfolio.adapters.common.ReactiveRateLimiter;
 import com.portfolio.adapters.outgoing.marketdata.client.TwelveDataClient;
+import com.portfolio.adapters.outgoing.marketdata.client.TwelveDataExchangeRateResponse;
+import com.portfolio.adapters.outgoing.marketdata.client.TwelveDataPriceResponse;
+import com.portfolio.adapters.outgoing.marketdata.client.TwelveDataTimeSeriesResponse;
 import com.portfolio.core.application.service.CurrencyResolver;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.FxRateEntry;
@@ -15,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -36,26 +40,42 @@ class TwelveDataProviderAdapterTest {
 
     @BeforeEach
     void setUp() {
-        adapter = new TwelveDataProviderAdapter(client, API_KEY, currencyResolver);
+        adapter = new TwelveDataProviderAdapter(client, API_KEY, currencyResolver, permissiveLimiter());
+    }
+
+    private static ReactiveRateLimiter permissiveLimiter() {
+        return new ReactiveRateLimiter("test", 60_000_000, Duration.ofMinutes(2));
+    }
+
+    private static TwelveDataPriceResponse price(String json) throws Exception {
+        return MAPPER.readValue(json, TwelveDataPriceResponse.class);
+    }
+
+    private static TwelveDataExchangeRateResponse fx(String json) throws Exception {
+        return MAPPER.readValue(json, TwelveDataExchangeRateResponse.class);
+    }
+
+    private static TwelveDataTimeSeriesResponse series(String json) throws Exception {
+        return MAPPER.readValue(json, TwelveDataTimeSeriesResponse.class);
     }
 
     @Test
     void givenPriceResponse_whenFetchSpotPrice_thenReturnsPrice() throws Exception {
-        JsonNode node = MAPPER.readTree("{\"price\":\"123.45\"}");
-        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
+        when(client.price("AAPL", API_KEY))
+                .thenReturn(Uni.createFrom().item(price("{\"price\":\"123.45\"}")));
 
-        BigDecimal price = adapter.fetchSpotPrice("AAPL")
+        BigDecimal result = adapter.fetchSpotPrice("AAPL")
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitItem()
                 .getItem();
 
-        assertEquals(0, new BigDecimal("123.45").compareTo(price));
+        assertEquals(0, new BigDecimal("123.45").compareTo(result));
     }
 
     @Test
     void givenMissingPrice_whenFetchSpotPrice_thenThrows() throws Exception {
-        JsonNode node = MAPPER.readTree("{\"price\":null}");
-        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
+        when(client.price("AAPL", API_KEY))
+                .thenReturn(Uni.createFrom().item(price("{\"price\":null}")));
 
         adapter.fetchSpotPrice("AAPL")
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -65,8 +85,8 @@ class TwelveDataProviderAdapterTest {
 
     @Test
     void givenErrorStatusResponse_whenFetchSpotPrice_thenThrows() throws Exception {
-        JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
-        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
+        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(
+                price("{\"status\":\"error\",\"message\":\"bad symbol\"}")));
 
         adapter.fetchSpotPrice("AAPL")
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -75,9 +95,49 @@ class TwelveDataProviderAdapterTest {
     }
 
     @Test
-    void givenFxResponse_whenFetchFxRate_thenReturnsRate() throws Exception {
-        JsonNode node = MAPPER.readTree("{\"rate\":\"1.2345\"}");
-        when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
+    void givenRateLimitErrorCode_whenFetchSpotPrice_thenThrowsRateLimited() throws Exception {
+        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(
+                price("{\"code\":429,\"status\":\"error\",\"message\":\"You have run out of API credits\"}")));
+
+        MarketDataProviderError.RateLimited failure = (MarketDataProviderError.RateLimited)
+                adapter.fetchSpotPrice("AAPL")
+                        .subscribe().withSubscriber(UniAssertSubscriber.create())
+                        .awaitFailure()
+                        .assertFailedWith(MarketDataProviderError.RateLimited.class)
+                        .getFailure();
+
+        assertEquals(Duration.ofMinutes(1), failure.retryAfter());
+    }
+
+    @Test
+    void givenSaturatedLimiter_whenFetchSpotPrice_thenThrowsRateLimitedWithoutCallingProvider() {
+        // 1 credit/min with zero max-wait: first acquire consumes the immediate slot, the
+        // second projects a 60s wait > 0s cap and is rejected before any client call.
+        ReactiveRateLimiter tinyLimiter = new ReactiveRateLimiter("test", 1, Duration.ZERO);
+        adapter = new TwelveDataProviderAdapter(client, API_KEY, currencyResolver, tinyLimiter);
+        when(client.price("AAPL", API_KEY))
+                .thenReturn(Uni.createFrom().item(new TwelveDataPriceResponse("123.45", null, null, null)));
+
+        adapter.fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem();
+
+        MarketDataProviderError.RateLimited failure = (MarketDataProviderError.RateLimited)
+                adapter.fetchSpotPrice("AAPL")
+                        .subscribe().withSubscriber(UniAssertSubscriber.create())
+                        .awaitFailure()
+                        .assertFailedWith(MarketDataProviderError.RateLimited.class)
+                        .getFailure();
+
+        assertTrue(failure.retryAfter().compareTo(Duration.ZERO) > 0);
+        Mockito.verify(client, Mockito.times(1)).price("AAPL", API_KEY);
+    }
+
+    @Test
+    void givenNumericJsonRate_whenFetchFxRate_thenReturnsRate() throws Exception {
+        // The API emits rate as a JSON number; Jackson coerces it into the String field.
+        when(client.exchangeRate("EUR/USD", API_KEY))
+                .thenReturn(Uni.createFrom().item(fx("{\"rate\":1.2345}")));
 
         BigDecimal rate = adapter.fetchFxRate(Currency.EUR, Currency.USD)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -89,8 +149,8 @@ class TwelveDataProviderAdapterTest {
 
     @Test
     void givenMissingFxRate_whenFetchFxRate_thenThrows() throws Exception {
-        JsonNode node = MAPPER.readTree("{}");
-        when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
+        when(client.exchangeRate("EUR/USD", API_KEY))
+                .thenReturn(Uni.createFrom().item(fx("{}")));
 
         adapter.fetchFxRate(Currency.EUR, Currency.USD)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -100,8 +160,8 @@ class TwelveDataProviderAdapterTest {
 
     @Test
     void givenErrorStatusResponse_whenFetchFxRate_thenThrows() throws Exception {
-        JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
-        when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
+        when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(
+                fx("{\"status\":\"error\",\"message\":\"bad symbol\"}")));
 
         adapter.fetchFxRate(Currency.EUR, Currency.USD)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -113,17 +173,18 @@ class TwelveDataProviderAdapterTest {
     void givenTimeSeries_whenFetchPriceHistory_thenParsesEntries() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 2);
-        JsonNode node = MAPPER.readTree("""
+        TwelveDataTimeSeriesResponse response = series("""
                 {
-                  "meta": {"currency": "USD"},
+                  "meta": {"currency": "USD", "symbol": "AAPL"},
                   "values": [
-                    {"datetime": "2024-01-01", "close": "100.5"},
-                    {"datetime": "2024-01-02", "close": "101.0"}
-                  ]
+                    {"datetime": "2024-01-01", "close": "100.5", "volume": "1000"},
+                    {"datetime": "2024-01-02", "close": "101.0", "volume": "1000"}
+                  ],
+                  "status": "ok"
                 }
                 """);
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -139,8 +200,8 @@ class TwelveDataProviderAdapterTest {
 
     @Test
     void givenMissingPriceNode_whenFetchSpotPrice_thenThrows() throws Exception {
-        JsonNode node = MAPPER.readTree("{}");
-        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(node));
+        when(client.price("AAPL", API_KEY))
+                .thenReturn(Uni.createFrom().item(price("{}")));
 
         adapter.fetchSpotPrice("AAPL")
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -150,8 +211,8 @@ class TwelveDataProviderAdapterTest {
 
     @Test
     void givenNullFxRateNode_whenFetchFxRate_thenThrows() throws Exception {
-        JsonNode node = MAPPER.readTree("{\"rate\":null}");
-        when(client.exchangeRate("EUR/USD", API_KEY)).thenReturn(Uni.createFrom().item(node));
+        when(client.exchangeRate("EUR/USD", API_KEY))
+                .thenReturn(Uni.createFrom().item(fx("{\"rate\":null}")));
 
         adapter.fetchFxRate(Currency.EUR, Currency.USD)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -163,9 +224,9 @@ class TwelveDataProviderAdapterTest {
     void givenErrorStatusResponse_whenFetchPriceHistory_thenThrows() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(
+                        series("{\"status\":\"error\",\"message\":\"bad symbol\"}")));
 
         adapter.fetchPriceHistory("AAPL", from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -174,12 +235,26 @@ class TwelveDataProviderAdapterTest {
     }
 
     @Test
+    void givenRateLimitErrorCode_whenFetchPriceHistory_thenThrowsRateLimited() throws Exception {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        LocalDate to = LocalDate.of(2024, 1, 1);
+        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
+                .thenReturn(Uni.createFrom().item(series(
+                        "{\"code\":429,\"status\":\"error\",\"message\":\"You have run out of API credits\"}")));
+
+        adapter.fetchPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.RateLimited.class);
+    }
+
+    @Test
     void givenErrorStatusResponse_whenFetchFxHistory_thenThrows() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("{\"status\":\"error\",\"message\":\"rate limit exceeded\"}");
         when(client.timeSeries("EUR/USD", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(
+                        series("{\"status\":\"error\",\"message\":\"bad symbol\"}")));
 
         adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -191,25 +266,8 @@ class TwelveDataProviderAdapterTest {
     void givenMissingValuesNode_whenFetchPriceHistory_thenReturnsEmptyList() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("{}");
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
-
-        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
-                .subscribe().withSubscriber(UniAssertSubscriber.create())
-                .awaitItem()
-                .getItem();
-
-        assertTrue(entries.isEmpty());
-    }
-
-    @Test
-    void givenNonArrayValues_whenFetchPriceHistory_thenReturnsEmptyList() throws Exception {
-        LocalDate from = LocalDate.of(2024, 1, 1);
-        LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("{\"values\":\"not-an-array\"}");
-        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(series("{}")));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -223,13 +281,13 @@ class TwelveDataProviderAdapterTest {
     void givenMissingMeta_whenFetchPriceHistory_thenDefaultsToUsd() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("""
+        TwelveDataTimeSeriesResponse response = series("""
                 {
                   "values": [{"datetime": "2024-01-01", "close": "50"}]
                 }
                 """);
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -243,25 +301,8 @@ class TwelveDataProviderAdapterTest {
     void givenMissingValuesNode_whenFetchFxHistory_thenReturnsEmptyList() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("{}");
         when(client.timeSeries("EUR/USD", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
-
-        List<FxRateEntry> entries = adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
-                .subscribe().withSubscriber(UniAssertSubscriber.create())
-                .awaitItem()
-                .getItem();
-
-        assertTrue(entries.isEmpty());
-    }
-
-    @Test
-    void givenNonArrayValues_whenFetchFxHistory_thenReturnsEmptyList() throws Exception {
-        LocalDate from = LocalDate.of(2024, 1, 1);
-        LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("{\"values\":{}}");
-        when(client.timeSeries("EUR/USD", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(series("{}")));
 
         List<FxRateEntry> entries = adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -275,9 +316,8 @@ class TwelveDataProviderAdapterTest {
     void givenEmptyValues_whenFetchPriceHistory_thenReturnsEmptyList() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("{\"values\":[]}");
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(series("{\"values\":[]}")));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -291,14 +331,14 @@ class TwelveDataProviderAdapterTest {
     void givenUnsupportedCurrencyMeta_whenFetchPriceHistory_thenThrows() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("""
+        TwelveDataTimeSeriesResponse response = series("""
                 {
                   "meta": {"currency": "NOT_A_CURRENCY"},
                   "values": [{"datetime": "2024-01-01", "close": "50"}]
                 }
                 """);
         when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(response));
 
         adapter.fetchPriceHistory("AAPL", from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -310,14 +350,14 @@ class TwelveDataProviderAdapterTest {
     void givenGbxCurrencyMeta_whenFetchPriceHistory_thenScalesToGbp() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("""
+        TwelveDataTimeSeriesResponse response = series("""
                 {
                   "meta": {"currency": "GBX"},
                   "values": [{"datetime": "2024-01-01", "close": "12345"}]
                 }
                 """);
         when(client.timeSeries("LLOY", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("LLOY", from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -332,14 +372,14 @@ class TwelveDataProviderAdapterTest {
     void givenGbpPenceCurrencyMeta_whenFetchPriceHistory_thenScalesToGbp() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("""
+        TwelveDataTimeSeriesResponse response = series("""
                 {
                   "meta": {"currency": "GBp"},
                   "values": [{"datetime": "2024-01-01", "close": "500"}]
                 }
                 """);
         when(client.timeSeries("LLOY", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("LLOY", from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -354,14 +394,14 @@ class TwelveDataProviderAdapterTest {
     void givenPlainGbpCurrencyMeta_whenFetchPriceHistory_thenDoesNotRescale() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        JsonNode node = MAPPER.readTree("""
+        TwelveDataTimeSeriesResponse response = series("""
                 {
                   "meta": {"currency": "GBP"},
                   "values": [{"datetime": "2024-01-01", "close": "5.00"}]
                 }
                 """);
         when(client.timeSeries("BP", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("BP", from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -376,7 +416,7 @@ class TwelveDataProviderAdapterTest {
     void givenFxTimeSeries_whenFetchFxHistory_thenParsesRates() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 2);
-        JsonNode node = MAPPER.readTree("""
+        TwelveDataTimeSeriesResponse response = series("""
                 {
                   "values": [
                     {"datetime": "2024-01-01", "close": "1.10"},
@@ -385,7 +425,7 @@ class TwelveDataProviderAdapterTest {
                 }
                 """);
         when(client.timeSeries("EUR/USD", "1day", from.toString(), to.toString(), API_KEY))
-                .thenReturn(Uni.createFrom().item(node));
+                .thenReturn(Uni.createFrom().item(response));
 
         List<FxRateEntry> entries = adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())

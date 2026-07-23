@@ -1,6 +1,5 @@
 package com.portfolio.adapters.outgoing.marketdata.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import io.smallrye.mutiny.Uni;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -13,17 +12,19 @@ public interface TwelveDataClient {
 
     @GET
     @Path("/price")
-    Uni<JsonNode> price(@QueryParam("symbol") String symbol, @QueryParam("apikey") String apiKey);
+    Uni<TwelveDataPriceResponse> price(
+            @QueryParam("symbol") String symbol,
+            @QueryParam("apikey") String apiKey);
 
     @GET
     @Path("/exchange_rate")
-    Uni<JsonNode> exchangeRate(
+    Uni<TwelveDataExchangeRateResponse> exchangeRate(
             @QueryParam("symbol") String symbol,
             @QueryParam("apikey") String apiKey);
 
     @GET
     @Path("/time_series")
-    Uni<JsonNode> timeSeries(
+    Uni<TwelveDataTimeSeriesResponse> timeSeries(
             @QueryParam("symbol") String symbol,
             @QueryParam("interval") String interval,
             @QueryParam("start_date") String startDate,
