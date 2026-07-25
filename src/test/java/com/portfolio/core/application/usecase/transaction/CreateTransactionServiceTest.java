@@ -5,7 +5,9 @@ import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.Transaction;
 import com.portfolio.core.model.TransactionType;
 import com.portfolio.core.model.UserId;
+import com.portfolio.core.model.event.TransactionCreatedEvent;
 import com.portfolio.core.ports.incoming.CreateTransactionUseCase;
+import com.portfolio.core.ports.outgoing.TransactionEventPublisher;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
@@ -22,8 +24,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -32,11 +33,13 @@ import static org.mockito.Mockito.when;
 class CreateTransactionServiceTest {
 
     private final TransactionRepository repository = Mockito.mock(TransactionRepository.class);
+    private final TransactionEventPublisher eventPublisher = Mockito.mock(TransactionEventPublisher.class);
     private CreateTransactionService service;
 
     @BeforeEach
     void setUp() {
-        service = new CreateTransactionService(repository);
+        when(eventPublisher.publishTransactionCreated(any())).thenReturn(Uni.createFrom().voidItem());
+        service = new CreateTransactionService(repository, eventPublisher);
     }
 
     @Test
@@ -78,6 +81,32 @@ class CreateTransactionServiceTest {
         ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
         verify(repository).save(captor.capture());
         assertEquals("AAPL", captor.getValue().ticker());
+
+        ArgumentCaptor<TransactionCreatedEvent> eventCaptor = ArgumentCaptor.forClass(TransactionCreatedEvent.class);
+        verify(eventPublisher).publishTransactionCreated(eventCaptor.capture());
+        TransactionCreatedEvent publishedEvent = eventCaptor.getValue();
+        assertEquals(success.transaction(), publishedEvent.transaction());
+        assertEquals("AAPL", publishedEvent.transaction().ticker());
+        assertNotNull(publishedEvent.eventId());
+        assertNotNull(publishedEvent.occurredAt());
+    }
+
+    @Test
+    void givenPublisherFails_whenExecute_thenResultIsStillSuccess() {
+        when(repository.save(any(Transaction.class))).thenAnswer(invocation -> {
+            Transaction saved = invocation.getArgument(0, Transaction.class);
+            return Uni.createFrom().item(saved);
+        });
+        stubLock(Map.of());
+        when(eventPublisher.publishTransactionCreated(any()))
+                .thenReturn(Uni.createFrom().failure(new RuntimeException("redis down")));
+
+        CreateTransactionUseCase.Result result = service.execute(validCommandBuilder().build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);
     }
 
     @Test
@@ -116,6 +145,7 @@ class CreateTransactionServiceTest {
 
         assertInstanceOf(CreateTransactionUseCase.Result.Conflict.class, result);
         verify(repository, never()).save(any());
+        verify(eventPublisher, never()).publishTransactionCreated(any());
     }
 
     @Test
@@ -126,6 +156,7 @@ class CreateTransactionServiceTest {
                 .getItem();
 
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, result);
+        verify(eventPublisher, never()).publishTransactionCreated(any());
     }
 
     @Test
@@ -271,7 +302,7 @@ class CreateTransactionServiceTest {
 
         CreateTransactionUseCase.Result.Success success =
                 assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);
-        assertEquals(false, success.transaction().fractional());
+        assertFalse(success.transaction().fractional());
     }
 
     @Test
@@ -293,7 +324,6 @@ class CreateTransactionServiceTest {
         assertEquals(0, BigDecimal.ONE.compareTo(success.transaction().fractionalMultiplier()));
     }
 
-    @SuppressWarnings("unchecked")
     private void stubLock(Map<String, List<Transaction>> byTicker) {
         when(repository.withTickersLocked(any(), any(), any())).thenAnswer(invocation -> {
             Function<Map<String, List<Transaction>>, Uni<Object>> action = invocation.getArgument(2);
@@ -306,7 +336,7 @@ class CreateTransactionServiceTest {
     }
 
     private static final class CommandBuilder {
-        private UserId userId = UserId.of("user-1");
+        private final UserId userId = UserId.of("user-1");
         private String ticker = "aapl";
         private TransactionType transactionType = TransactionType.BUY;
         private AssetType assetType = AssetType.COMMON_STOCK;

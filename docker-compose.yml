@@ -19,6 +19,19 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${PORTFOLIO_SERVICE_REDIS_PORT:-6379}:6379"
+    networks:
+      - portfolio-service-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   adminer:
     image: adminer:4.8.1
     ports:
@@ -50,10 +63,13 @@ services:
       PORT: 8087
       QUARKUS_PROFILE: prod
       PORTFOLIO_BASE_CURRENCY: ${PORTFOLIO_BASE_CURRENCY:-USD}
+      REDIS_URL: redis://redis:6379
     networks:
       - portfolio-service-network
     depends_on:
       postgresql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:

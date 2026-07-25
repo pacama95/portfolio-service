@@ -40,6 +40,18 @@ class GlobalExceptionMapperTest {
     }
 
     @Test
+    void givenUpstream429WebApplicationException_whenToResponse_thenMapsTo503WithRetryAfter() {
+        Response original = Response.status(429).entity("{\"raw\":\"provider body\"}").build();
+
+        Response response = mapper.toResponse(new WebApplicationException(original));
+
+        assertEquals(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(), response.getStatus());
+        assertEquals(60, response.getHeaders().getFirst("Retry-After"));
+        Map<?, ?> body = assertInstanceOf(Map.class, response.getEntity());
+        assertEquals("RATE_LIMITED", body.get("error"));
+    }
+
+    @Test
     void givenServerWebApplicationException_whenToResponse_thenMapsToInternalError() {
         Response original = Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
 

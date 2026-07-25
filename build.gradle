@@ -29,6 +29,7 @@ dependencies {
     implementation 'io.quarkus:quarkus-jdbc-postgresql'
     implementation 'io.quarkus:quarkus-cache'
     implementation 'io.quarkus:quarkus-scheduler'
+    implementation 'io.quarkus:quarkus-redis-client'
 
     implementation "org.mapstruct:mapstruct:${mapstructVersion}"
     annotationProcessor "org.mapstruct:mapstruct-processor:${mapstructVersion}"

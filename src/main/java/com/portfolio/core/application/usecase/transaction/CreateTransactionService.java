@@ -2,7 +2,9 @@ package com.portfolio.core.application.usecase.transaction;
 
 import com.portfolio.core.domain.LedgerReplay;
 import com.portfolio.core.model.Transaction;
+import com.portfolio.core.model.event.TransactionCreatedEvent;
 import com.portfolio.core.ports.incoming.CreateTransactionUseCase;
+import com.portfolio.core.ports.outgoing.TransactionEventPublisher;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -20,9 +22,12 @@ public class CreateTransactionService implements CreateTransactionUseCase {
     private static final Logger LOG = Logger.getLogger(CreateTransactionService.class);
 
     private final TransactionRepository transactionRepository;
+    private final TransactionEventPublisher eventPublisher;
 
-    public CreateTransactionService(TransactionRepository transactionRepository) {
+    public CreateTransactionService(
+            TransactionRepository transactionRepository, TransactionEventPublisher eventPublisher) {
         this.transactionRepository = transactionRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -74,19 +79,33 @@ public class CreateTransactionService implements CreateTransactionUseCase {
                     List<Transaction> combined = new ArrayList<>(existing);
                     combined.add(transaction);
                     LedgerReplay.ApplyResult replay = LedgerReplay.replayTicker(combined);
-                    if (replay instanceof LedgerReplay.ApplyResult.Oversell oversell) {
+                    if (replay instanceof LedgerReplay.ApplyResult.Oversell(
+                            String ticker, BigDecimal requested, BigDecimal available
+                    )) {
                         return Uni.createFrom().<Result>item(new Result.Conflict(
-                                "Would oversell " + oversell.ticker() + ": requested " + oversell.requested()
-                                        + " available " + oversell.available()
+                                "Would oversell " + ticker + ": requested " + requested
+                                        + " available " + available
                                         + " as of " + transaction.transactionDate()));
                     }
-                    if (replay instanceof LedgerReplay.ApplyResult.InvalidInput invalid) {
-                        return Uni.createFrom().<Result>item(new Result.InvalidRequest(invalid.message()));
+                    if (replay instanceof LedgerReplay.ApplyResult.InvalidInput(String message)) {
+                        return Uni.createFrom().item(new Result.InvalidRequest(message));
                     }
                     return transactionRepository.save(transaction)
                             .invoke(saved -> LOG.infof(
                                     "Created transaction id=%s ticker=%s", saved.id(), saved.ticker()))
                             .map(Result.Success::new);
+                })
+                .call(result -> result instanceof Result.Success(Transaction transaction1)
+                        ? publishCreatedEvent(transaction1)
+                        : Uni.createFrom().voidItem());
+    }
+
+    private Uni<Void> publishCreatedEvent(Transaction transaction) {
+        return eventPublisher.publishTransactionCreated(TransactionCreatedEvent.from(transaction))
+                .onFailure().recoverWithItem(failure -> {
+                    LOG.warnf(failure, "Failed to publish transaction.created event for transaction id=%s; continuing",
+                            transaction.id());
+                    return null;
                 });
     }
 }

@@ -33,21 +33,17 @@ public class TriggerPriceIngestionService implements TriggerPriceIngestionUseCas
     private final MarketDataPort marketDataPort;
     private final PriceIngestionRunRepository runRepository;
     private final Duration staleRunTimeout;
-    private final Duration symbolFetchDelay;
 
     public TriggerPriceIngestionService(
             TransactionRepository transactionRepository,
             MarketDataPort marketDataPort,
             PriceIngestionRunRepository runRepository,
             @ConfigProperty(name = "application.market-data.ingestion.stale-run-timeout", defaultValue = "PT3H")
-            Duration staleRunTimeout,
-            @ConfigProperty(name = "application.market-data.ingestion.symbol-fetch-delay", defaultValue = "PT8S")
-            Duration symbolFetchDelay) {
+            Duration staleRunTimeout) {
         this.transactionRepository = transactionRepository;
         this.marketDataPort = marketDataPort;
         this.runRepository = runRepository;
         this.staleRunTimeout = staleRunTimeout;
-        this.symbolFetchDelay = symbolFetchDelay;
     }
 
     @Override
@@ -161,13 +157,9 @@ public class TriggerPriceIngestionService implements TriggerPriceIngestionUseCas
         Uni<IngestionRun> current = Uni.createFrom().item(run);
         for (int i = 0; i < symbols.size(); i++) {
             String symbol = symbols.get(i);
-            Uni<Void> delay = i == 0
-                    ? Uni.createFrom().voidItem()
-                    : Uni.createFrom().voidItem().onItem().delayIt().by(symbolFetchDelay);
             current = current.flatMap(r -> {
                 LOG.infof("Ingesting symbol=%s from=%s to=%s runId=%s", symbol, from, to, r.id());
-                return delay
-                        .chain(() -> marketDataPort.getPriceHistory(symbol, from, to))
+                return marketDataPort.getPriceHistory(symbol, from, to)
                         .replaceWith(true)
                         .onFailure().recoverWithItem(failure -> {
                             LOG.warnf(failure, "Symbol ingestion failed symbol=%s runId=%s", symbol, r.id());

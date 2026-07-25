@@ -21,7 +21,10 @@ public class IntegrationTestProfile implements QuarkusTestProfile {
                 Map.entry("application.market-data.twelve-data.api-key", "test-api-key"),
                 Map.entry("application.portfolio.base-currency", "USD"),
                 Map.entry("application.market-data.spot-price-freshness", "PT15M"),
-                Map.entry("application.market-data.fx-freshness", "PT1H")
+                Map.entry("application.market-data.fx-freshness", "PT1H"),
+                // ITs make many provider calls against WireMock; the production 8/min budget
+                // would add ~7.5s per call.
+                Map.entry("application.market-data.twelve-data.rate-limit.credits-per-minute", "60000")
         );
     }
 
@@ -29,7 +32,8 @@ public class IntegrationTestProfile implements QuarkusTestProfile {
     public List<TestResourceEntry> testResources() {
         return List.of(
                 new TestResourceEntry(PostgresTestResource.class),
-                new TestResourceEntry(WireMockMarketDataResource.class)
+                new TestResourceEntry(WireMockMarketDataResource.class),
+                new TestResourceEntry(RedisTestResource.class)
         );
     }
 }

@@ -40,7 +40,6 @@ class TriggerPriceIngestionServiceTest {
     private static final LocalDate FROM = LocalDate.of(2024, 1, 1);
     private static final LocalDate TO = LocalDate.of(2024, 1, 2);
     private static final Duration STALE_RUN_TIMEOUT = Duration.ofHours(3);
-    private static final Duration SYMBOL_FETCH_DELAY = Duration.ofMillis(1);
 
     private final TransactionRepository transactionRepository = Mockito.mock(TransactionRepository.class);
     private final MarketDataPort marketDataPort = Mockito.mock(MarketDataPort.class);
@@ -50,7 +49,7 @@ class TriggerPriceIngestionServiceTest {
     @BeforeEach
     void setUp() {
         service = new TriggerPriceIngestionService(
-                transactionRepository, marketDataPort, runRepository, STALE_RUN_TIMEOUT, SYMBOL_FETCH_DELAY);
+                transactionRepository, marketDataPort, runRepository, STALE_RUN_TIMEOUT);
     }
 
     private static Transaction buyTransaction(String ticker, UserId user) {

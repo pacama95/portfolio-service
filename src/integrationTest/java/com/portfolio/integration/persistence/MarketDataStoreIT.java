@@ -19,6 +19,7 @@ import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.inject.Inject;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -151,5 +152,22 @@ class MarketDataStoreIT {
         asserter.assertThat(
                 () -> store.hasCoverage("PRICE", "AAPL", from, to),
                 covered -> assertTrue(covered));
+    }
+
+    @Test
+    @RunOnVertxContext
+    @DataSet(cleanBefore = true)
+    void givenCoverageAlreadyRecorded_whenRecordCoverageAgain_thenIgnoresDuplicateWithoutThrowing(
+            UniAsserter asserter) {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        LocalDate to = LocalDate.of(2024, 1, 2);
+
+        asserter.execute(() -> store.recordCoverage("PRICE", "AAPL", from, to, "twelvedata"));
+        // Simulates a second concurrent request racing on the identical (kind, symbol, from, to)
+        // tuple that already violates the market_data_coverage unique constraint.
+        asserter.execute(() -> store.recordCoverage("PRICE", "AAPL", from, to, "twelvedata"));
+        asserter.assertThat(
+                () -> store.hasCoverage("PRICE", "AAPL", from, to),
+                Assertions::assertTrue);
     }
 }

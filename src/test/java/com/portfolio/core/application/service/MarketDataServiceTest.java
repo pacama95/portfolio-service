@@ -10,6 +10,7 @@ import com.portfolio.core.ports.outgoing.MarketDataProviderPort;
 import com.portfolio.core.ports.outgoing.MarketDataStorePort;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
+import io.smallrye.mutiny.subscription.UniEmitter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -18,8 +19,10 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -95,6 +98,30 @@ class MarketDataServiceTest {
     }
 
     @Test
+    void givenRangeEndsTodayAndSettledDaysCached_whenGetPriceHistory_thenNoProviderCall() {
+        // Regression: today's EOD close is never recorded as coverage, so a to=today request must
+        // not treat today as an uncovered gap and re-fetch on every call.
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        LocalDate from = today.minusDays(3);
+        List<PriceHistoryEntry> stored = new ArrayList<>();
+        for (LocalDate day = from; !day.isAfter(yesterday); day = day.plusDays(1)) {
+            stored.add(new PriceHistoryEntry("AAPL", day, new BigDecimal("100"), null, Currency.USD,
+                    OffsetDateTime.now()));
+        }
+        when(store.findPrices("AAPL", from, today)).thenReturn(Uni.createFrom().item(stored));
+
+        List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, today)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(stored.size(), result.size());
+        verify(provider, never()).fetchPriceHistory(any(), any(), any());
+        verify(store, never()).hasCoverage(any(), any(), any(), any());
+    }
+
+    @Test
     void givenMissingDays_whenGetPriceHistory_thenFetchesGapsAndWritesBack() {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 2);
@@ -118,6 +145,47 @@ class MarketDataServiceTest {
         assertEquals(2, result.size());
         verify(provider).fetchPriceHistory("AAPL", to, to);
         verify(store).upsertPrices(any());
+    }
+
+    @Test
+    void givenConcurrentRequestsForSameGap_whenGetPriceHistory_thenCoalescesIntoOneProviderCall() {
+        LocalDate from = LocalDate.of(2024, 1, 1);
+        LocalDate to = LocalDate.of(2024, 1, 2);
+        List<PriceHistoryEntry> fullyFetched = List.of(
+                new PriceHistoryEntry("AAPL", from, new BigDecimal("100"), null, Currency.USD, OffsetDateTime.now()),
+                new PriceHistoryEntry("AAPL", to, new BigDecimal("101"), null, Currency.USD, OffsetDateTime.now()));
+        when(store.findPrices("AAPL", from, to))
+                .thenReturn(Uni.createFrom().item(List.of()))
+                .thenReturn(Uni.createFrom().item(List.of()))
+                .thenReturn(Uni.createFrom().item(fullyFetched));
+        when(store.hasCoverage("PRICE", "AAPL", from, to)).thenReturn(Uni.createFrom().item(false));
+        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
+
+        @SuppressWarnings("unchecked")
+        AtomicReference<UniEmitter<List<PriceHistoryEntry>>> emitterHolder = new AtomicReference<>();
+        Uni<List<PriceHistoryEntry>> pendingProviderCall = Uni.createFrom().emitter(
+                (UniEmitter<? super List<PriceHistoryEntry>> e) ->
+                        emitterHolder.set((UniEmitter<List<PriceHistoryEntry>>) e));
+        when(provider.fetchPriceHistory("AAPL", from, to)).thenReturn(pendingProviderCall);
+
+        // Both requests reach the coalescing point before the provider call resolves,
+        // mirroring two concurrent frontend requests racing on the same symbol/range.
+        UniAssertSubscriber<List<PriceHistoryEntry>> first =
+                service.getPriceHistory("AAPL", from, to).subscribe().withSubscriber(UniAssertSubscriber.create());
+        UniAssertSubscriber<List<PriceHistoryEntry>> second =
+                service.getPriceHistory("AAPL", from, to).subscribe().withSubscriber(UniAssertSubscriber.create());
+
+        first.assertNotTerminated();
+        second.assertNotTerminated();
+
+        emitterHolder.get().complete(fullyFetched);
+
+        assertEquals(2, first.awaitItem().getItem().size());
+        assertEquals(2, second.awaitItem().getItem().size());
+        verify(provider, times(1)).fetchPriceHistory("AAPL", from, to);
+        verify(store, times(1)).upsertPrices(any());
+        verify(store, times(1)).recordCoverage(any(), any(), any(), any(), any());
     }
 
     @Test

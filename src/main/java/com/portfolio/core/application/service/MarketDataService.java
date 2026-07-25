@@ -23,6 +23,8 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 /**
@@ -37,6 +39,12 @@ public class MarketDataService implements MarketDataPort {
     private final MarketDataProviderPort provider;
     private final Duration spotPriceFreshness;
     private final Duration fxFreshness;
+
+    // Coalesces concurrent provider-fetch-and-persist calls for the identical
+    // (symbol, from, to) so a frontend reload firing duplicate requests hits
+    // TwelveData once, not N times, and doesn't race on market_data_coverage inserts.
+    private final ConcurrentMap<String, Uni<List<PriceHistoryEntry>>> inFlightPriceFetches = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Uni<List<FxRateEntry>>> inFlightFxFetches = new ConcurrentHashMap<>();
 
     public MarketDataService(
             MarketDataStorePort store,
@@ -110,24 +118,28 @@ public class MarketDataService implements MarketDataPort {
     public Uni<List<PriceHistoryEntry>> getPriceHistory(String symbol, LocalDate from, LocalDate to) {
         String normalized = symbol.trim().toUpperCase();
         LocalDate effectiveTo = clampToToday(to);
+        LocalDate settledTo = coverageUpperBound(effectiveTo);
         return store.findPrices(normalized, from, effectiveTo)
                 .flatMap(stored -> {
+                    if (settledTo.isBefore(from)) {
+                        return Uni.createFrom().item(stored);
+                    }
                     Set<LocalDate> present = stored.stream()
                             .map(PriceHistoryEntry::priceDate)
                             .collect(Collectors.toCollection(HashSet::new));
-                    List<LocalDate> missing = datesBetween(from, effectiveTo).stream()
+                    List<LocalDate> missing = datesBetween(from, settledTo).stream()
                             .filter(date -> !present.contains(date))
                             .toList();
                     if (missing.isEmpty()) {
-                        LOG.infof("Price history fully cached symbol=%s from=%s to=%s", normalized, from, effectiveTo);
+                        LOG.infof("Price history fully cached symbol=%s from=%s to=%s", normalized, from, settledTo);
                         return Uni.createFrom().item(stored);
                     }
-                    return store.hasCoverage("PRICE", normalized, from, effectiveTo)
+                    return store.hasCoverage("PRICE", normalized, from, settledTo)
                             .flatMap(covered -> {
                                 if (Boolean.TRUE.equals(covered)) {
                                     LOG.infof(
                                             "Price history covered without provider fetch symbol=%s from=%s to=%s",
-                                            normalized, from, effectiveTo);
+                                            normalized, from, settledTo);
                                     return Uni.createFrom().item(stored);
                                 }
                                 LocalDate fetchFrom = missing.getFirst();
@@ -135,10 +147,19 @@ public class MarketDataService implements MarketDataPort {
                                 LOG.infof(
                                         "Fetching price history from provider symbol=%s from=%s to=%s",
                                         normalized, fetchFrom, fetchTo);
-                                return provider.fetchPriceHistory(normalized, fetchFrom, fetchTo)
-                                        .flatMap(fetched -> persistPriceFetch(normalized, from, effectiveTo, fetched));
+                                return fetchAndPersistPriceOnce(normalized, from, effectiveTo, fetchFrom, fetchTo);
                             });
                 });
+    }
+
+    private Uni<List<PriceHistoryEntry>> fetchAndPersistPriceOnce(
+            String symbol, LocalDate from, LocalDate effectiveTo, LocalDate fetchFrom, LocalDate fetchTo) {
+        String key = "PRICE:" + symbol + ":" + from + ":" + effectiveTo;
+        return inFlightPriceFetches.computeIfAbsent(key, ignored ->
+                provider.fetchPriceHistory(symbol, fetchFrom, fetchTo)
+                        .flatMap(fetched -> persistPriceFetch(symbol, from, effectiveTo, fetched))
+                        .onTermination().invoke(() -> inFlightPriceFetches.remove(key))
+                        .memoize().indefinitely());
     }
 
     private Uni<List<PriceHistoryEntry>> persistPriceFetch(
@@ -161,34 +182,50 @@ public class MarketDataService implements MarketDataPort {
         }
         String symbol = fxSymbol(base, quote);
         LocalDate effectiveTo = clampToToday(to);
+        // See getPriceHistory: coverage stops at the settled ceiling (yesterday), so the read path
+        // must too, or today's ever-missing FX rate re-fetches on every request.
+        LocalDate settledTo = coverageUpperBound(effectiveTo);
         return store.findFxRates(base, quote, from, effectiveTo)
                 .flatMap(stored -> {
+                    if (settledTo.isBefore(from)) {
+                        return Uni.createFrom().item(stored);
+                    }
                     Set<LocalDate> present = stored.stream()
                             .map(FxRateEntry::rateDate)
                             .collect(Collectors.toCollection(HashSet::new));
-                    List<LocalDate> missing = datesBetween(from, effectiveTo).stream()
+                    List<LocalDate> missing = datesBetween(from, settledTo).stream()
                             .filter(date -> !present.contains(date))
                             .toList();
                     if (missing.isEmpty()) {
-                        LOG.infof("FX history fully cached symbol=%s from=%s to=%s", symbol, from, effectiveTo);
+                        LOG.infof("FX history fully cached symbol=%s from=%s to=%s", symbol, from, settledTo);
                         return Uni.createFrom().item(stored);
                     }
-                    return store.hasCoverage("FX", symbol, from, effectiveTo)
+                    return store.hasCoverage("FX", symbol, from, settledTo)
                             .flatMap(covered -> {
                                 if (Boolean.TRUE.equals(covered)) {
                                     LOG.infof(
                                             "FX history covered without provider fetch symbol=%s from=%s to=%s",
-                                            symbol, from, effectiveTo);
+                                            symbol, from, settledTo);
                                     return Uni.createFrom().item(stored);
                                 }
                                 LOG.infof(
                                         "Fetching FX history from provider symbol=%s from=%s to=%s",
                                         symbol, missing.getFirst(), missing.getLast());
-                                return provider.fetchFxHistory(base, quote, missing.getFirst(), missing.getLast())
-                                        .flatMap(fetched -> persistFxFetch(
-                                                base, quote, symbol, from, effectiveTo, fetched));
+                                return fetchAndPersistFxOnce(
+                                        base, quote, symbol, from, effectiveTo, missing.getFirst(), missing.getLast());
                             });
                 });
+    }
+
+    private Uni<List<FxRateEntry>> fetchAndPersistFxOnce(
+            Currency base, Currency quote, String symbol, LocalDate from, LocalDate effectiveTo,
+            LocalDate fetchFrom, LocalDate fetchTo) {
+        String key = "FX:" + symbol + ":" + from + ":" + effectiveTo;
+        return inFlightFxFetches.computeIfAbsent(key, ignored ->
+                provider.fetchFxHistory(base, quote, fetchFrom, fetchTo)
+                        .flatMap(fetched -> persistFxFetch(base, quote, symbol, from, effectiveTo, fetched))
+                        .onTermination().invoke(() -> inFlightFxFetches.remove(key))
+                        .memoize().indefinitely());
     }
 
     private Uni<List<FxRateEntry>> persistFxFetch(
