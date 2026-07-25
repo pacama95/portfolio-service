@@ -24,4 +24,6 @@ public interface MarketDataPort {
     Uni<List<FxRateEntry>> getFxHistory(Currency base, Currency quote, LocalDate from, LocalDate to);
 
     Uni<SpotQuote> setManualPrice(String symbol, BigDecimal price, Currency currency);
+
+    Uni<Void> clearManualPrice(String symbol);
 }

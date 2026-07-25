@@ -25,6 +25,8 @@ public interface MarketDataStorePort {
 
     Uni<SpotQuote> upsertSpotQuote(SpotQuote quote);
 
+    Uni<Void> deleteSpotQuote(SpotQuoteKind kind, String symbol);
+
     Uni<Boolean> hasCoverage(String coverageKind, String symbol, LocalDate from, LocalDate to);
 
     Uni<Void> recordCoverage(String coverageKind, String symbol, LocalDate from, LocalDate to, String provider);

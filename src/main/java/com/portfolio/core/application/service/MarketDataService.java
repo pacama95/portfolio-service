@@ -64,7 +64,11 @@ public class MarketDataService implements MarketDataPort {
         String normalized = symbol.trim().toUpperCase();
         return store.findSpotQuote(SpotQuoteKind.PRICE, normalized)
                 .flatMap(optional -> {
-                    if (optional.isPresent() && isFresh(optional.get().asOf(), spotPriceFreshness)) {
+                    // A MANUAL quote never expires on its own -- the user explicitly overrode the
+                    // provider price, so it stays authoritative until cleared via clearManualPrice.
+                    if (optional.isPresent()
+                            && (optional.get().source() == QuoteSource.MANUAL
+                                    || isFresh(optional.get().asOf(), spotPriceFreshness))) {
                         LOG.infof("Using cached spot price symbol=%s", normalized);
                         return Uni.createFrom().item(optional.get().value());
                     }
@@ -253,6 +257,13 @@ public class MarketDataService implements MarketDataPort {
                 OffsetDateTime.now(),
                 QuoteSource.MANUAL);
         return store.upsertSpotQuote(quote);
+    }
+
+    @Override
+    public Uni<Void> clearManualPrice(String symbol) {
+        String normalized = symbol.trim().toUpperCase();
+        LOG.infof("Clearing manual price symbol=%s", normalized);
+        return store.deleteSpotQuote(SpotQuoteKind.PRICE, normalized);
     }
 
     private static boolean isFresh(OffsetDateTime asOf, Duration freshness) {

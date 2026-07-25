@@ -145,6 +145,21 @@ class MarketDataStoreIT {
     @Test
     @RunOnVertxContext
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/market-data-seed.sql")
+    void givenSeededSpotQuote_whenDeleteSpotQuote_thenNoLongerFound(UniAsserter asserter) {
+        asserter.assertThat(
+                () -> store.findSpotQuote(SpotQuoteKind.PRICE, "AAPL"),
+                optional -> assertTrue(optional.isPresent()));
+
+        asserter.execute(() -> store.deleteSpotQuote(SpotQuoteKind.PRICE, "AAPL"));
+
+        asserter.assertThat(
+                () -> store.findSpotQuote(SpotQuoteKind.PRICE, "AAPL"),
+                optional -> assertFalse(optional.isPresent()));
+    }
+
+    @Test
+    @RunOnVertxContext
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/market-data-seed.sql")
     void givenSeededFx_whenFindAndUpsert_thenWorks(UniAsserter asserter) {
         asserter.assertThat(
                 () -> store.findFxRates(

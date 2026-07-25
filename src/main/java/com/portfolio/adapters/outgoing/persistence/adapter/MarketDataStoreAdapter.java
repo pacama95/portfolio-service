@@ -194,6 +194,17 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
     }
 
     @Override
+    @WithTransaction
+    public Uni<Void> deleteSpotQuote(SpotQuoteKind kind, String symbol) {
+        return Panache.getSession().flatMap(session ->
+                session.createQuery("delete from SpotQuoteEntity s where s.kind = :kind and s.symbol = :symbol")
+                        .setParameter("kind", SpotQuoteEntity.SpotQuoteKindDb.valueOf(kind.name()))
+                        .setParameter("symbol", symbol)
+                        .executeUpdate())
+                .replaceWithVoid();
+    }
+
+    @Override
     @WithSession
     public Uni<Boolean> hasCoverage(String coverageKind, String symbol, LocalDate from, LocalDate to) {
         return Panache.getSession().flatMap(session ->

@@ -475,4 +475,32 @@ class MarketDataServiceTest {
         assertEquals(QuoteSource.MANUAL, quote.source());
         verify(store).upsertSpotQuote(any());
     }
+
+    @Test
+    void givenOldManualQuote_whenGetSpotPrice_thenNeverRefetchesFromProvider() {
+        // MANUAL quotes never go stale on their own -- only clearManualPrice reverts to the
+        // provider -- so an old asOf timestamp must not trigger a provider re-fetch.
+        when(store.findSpotQuote(SpotQuoteKind.PRICE, "AAPL")).thenReturn(Uni.createFrom().item(Optional.of(
+                new SpotQuote(SpotQuoteKind.PRICE, "AAPL", new BigDecimal("199.50"), Currency.USD, null, null,
+                        OffsetDateTime.now().minusDays(30), QuoteSource.MANUAL))));
+
+        BigDecimal price = service.getSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(0, new BigDecimal("199.50").compareTo(price));
+        verify(provider, never()).fetchSpotPrice(any());
+    }
+
+    @Test
+    void givenSymbol_whenClearManualPrice_thenDeletesStoredQuote() {
+        when(store.deleteSpotQuote(SpotQuoteKind.PRICE, "AAPL")).thenReturn(Uni.createFrom().voidItem());
+
+        service.clearManualPrice("aapl")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem();
+
+        verify(store).deleteSpotQuote(SpotQuoteKind.PRICE, "AAPL");
+    }
 }

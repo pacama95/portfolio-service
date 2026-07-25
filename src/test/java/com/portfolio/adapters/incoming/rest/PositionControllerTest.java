@@ -6,6 +6,7 @@ import com.portfolio.adapters.incoming.rest.mapper.PositionRestMapper;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.Position;
 import com.portfolio.core.model.UserId;
+import com.portfolio.core.ports.incoming.ClearManualPriceUseCase;
 import com.portfolio.core.ports.incoming.GetPositionByTickerUseCase;
 import com.portfolio.core.ports.incoming.GetPositionsUseCase;
 import com.portfolio.core.ports.incoming.UpdateMarketPriceUseCase;
@@ -33,6 +34,7 @@ class PositionControllerTest {
     private final GetPositionsUseCase getPositionsUseCase = Mockito.mock(GetPositionsUseCase.class);
     private final GetPositionByTickerUseCase getPositionByTickerUseCase = Mockito.mock(GetPositionByTickerUseCase.class);
     private final UpdateMarketPriceUseCase updateMarketPriceUseCase = Mockito.mock(UpdateMarketPriceUseCase.class);
+    private final ClearManualPriceUseCase clearManualPriceUseCase = Mockito.mock(ClearManualPriceUseCase.class);
     private final PositionRestMapper mapper = Mockito.mock(PositionRestMapper.class);
     private final UserContext userContext = Mockito.mock(UserContext.class);
 
@@ -44,6 +46,7 @@ class PositionControllerTest {
                 getPositionsUseCase,
                 getPositionByTickerUseCase,
                 updateMarketPriceUseCase,
+                clearManualPriceUseCase,
                 mapper,
                 userContext);
         when(userContext.requireUserId()).thenReturn(USER_ID);
@@ -257,6 +260,40 @@ class PositionControllerTest {
 
         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         assertEquals(invalid, response.getEntity());
+    }
+
+    @Test
+    void givenExistingPosition_whenClearPrice_thenReturns200() {
+        Position position = samplePosition();
+        PositionResponse responseBody = samplePositionResponse(position);
+        ClearManualPriceUseCase.Command command = new ClearManualPriceUseCase.Command(USER_ID, "AAPL");
+
+        when(clearManualPriceUseCase.execute(command))
+                .thenReturn(Uni.createFrom().item(new ClearManualPriceUseCase.Result.Success(position)));
+        when(mapper.toResponse(position)).thenReturn(responseBody);
+
+        Response response = controller.clearPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        assertEquals(responseBody, response.getEntity());
+    }
+
+    @Test
+    void givenMissingPosition_whenClearPrice_thenReturns404() {
+        ClearManualPriceUseCase.Command command = new ClearManualPriceUseCase.Command(USER_ID, "MSFT");
+
+        when(clearManualPriceUseCase.execute(command))
+                .thenReturn(Uni.createFrom().item(new ClearManualPriceUseCase.Result.NotFound("MSFT")));
+
+        Response response = controller.clearPrice("MSFT")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
     }
 
     private static Position samplePosition() {

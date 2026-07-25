@@ -2,12 +2,14 @@ package com.portfolio.adapters.incoming.rest;
 
 import com.portfolio.adapters.incoming.rest.dto.UpdateMarketDataRequest;
 import com.portfolio.adapters.incoming.rest.mapper.PositionRestMapper;
+import com.portfolio.core.ports.incoming.ClearManualPriceUseCase;
 import com.portfolio.core.ports.incoming.GetPositionByTickerUseCase;
 import com.portfolio.core.ports.incoming.GetPositionsUseCase;
 import com.portfolio.core.ports.incoming.UpdateMarketPriceUseCase;
 import io.smallrye.mutiny.Uni;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
@@ -35,6 +37,7 @@ public class PositionController {
     private final GetPositionsUseCase getPositionsUseCase;
     private final GetPositionByTickerUseCase getPositionByTickerUseCase;
     private final UpdateMarketPriceUseCase updateMarketPriceUseCase;
+    private final ClearManualPriceUseCase clearManualPriceUseCase;
     private final PositionRestMapper mapper;
     private final UserContext userContext;
 
@@ -42,11 +45,13 @@ public class PositionController {
             GetPositionsUseCase getPositionsUseCase,
             GetPositionByTickerUseCase getPositionByTickerUseCase,
             UpdateMarketPriceUseCase updateMarketPriceUseCase,
+            ClearManualPriceUseCase clearManualPriceUseCase,
             PositionRestMapper mapper,
             UserContext userContext) {
         this.getPositionsUseCase = getPositionsUseCase;
         this.getPositionByTickerUseCase = getPositionByTickerUseCase;
         this.updateMarketPriceUseCase = updateMarketPriceUseCase;
+        this.clearManualPriceUseCase = clearManualPriceUseCase;
         this.mapper = mapper;
         this.userContext = userContext;
     }
@@ -144,6 +149,21 @@ public class PositionController {
                     case UpdateMarketPriceUseCase.Result.InvalidRequest invalid -> {
                         LOG.warnf("Update market price rejected ticker=%s reason=%s", ticker, invalid.message());
                         yield Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
+                    }
+                });
+    }
+
+    @DELETE
+    @Path("/ticker/{ticker}/price")
+    @Operation(summary = "Clear a manually set market price, reverting to provider pricing")
+    public Uni<Response> clearPrice(@PathParam("ticker") String ticker) {
+        return clearManualPriceUseCase.execute(new ClearManualPriceUseCase.Command(userContext.requireUserId(), ticker))
+                .map(result -> switch (result) {
+                    case ClearManualPriceUseCase.Result.Success success ->
+                            Response.ok(mapper.toResponse(success.position())).build();
+                    case ClearManualPriceUseCase.Result.NotFound ignored -> {
+                        LOG.warnf("Clear manual price not found ticker=%s", ticker);
+                        yield Response.status(Response.Status.NOT_FOUND).build();
                     }
                 });
     }
