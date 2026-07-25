@@ -6,6 +6,7 @@ import com.portfolio.core.model.Transaction;
 import com.portfolio.core.model.TransactionType;
 import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.UpdateTransactionUseCase;
+import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
@@ -26,6 +27,7 @@ import java.util.function.Function;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,11 +36,12 @@ class UpdateTransactionServiceTest {
     private static final UserId USER = UserId.of("user-1");
 
     private final TransactionRepository repository = Mockito.mock(TransactionRepository.class);
+    private final MarketDataPort marketDataPort = Mockito.mock(MarketDataPort.class);
     private UpdateTransactionService service;
 
     @BeforeEach
     void setUp() {
-        service = new UpdateTransactionService(repository);
+        service = new UpdateTransactionService(repository, marketDataPort);
     }
 
     @Test
@@ -428,6 +431,90 @@ class UpdateTransactionServiceTest {
                 .getItem());
 
         assertEquals("Updated Corp", success.transaction().companyName());
+    }
+
+    @Test
+    void givenNewFeesWithForeignCommissionCurrency_whenExecute_thenConvertsFees() {
+        UUID id = UUID.randomUUID();
+        Transaction existing = transactionWithCommission(id, Currency.USD, Currency.EUR, new BigDecimal("1"));
+        stubExisting(id, existing);
+        when(marketDataPort.getFxRate(Currency.EUR, Currency.USD))
+                .thenReturn(Uni.createFrom().item(new BigDecimal("1.10")));
+
+        UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
+                UpdateTransactionUseCase.Result.Success.class,
+                service.execute(update(id, null, null, null, null, new BigDecimal("2"), null, null, null,
+                        null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
+
+        // 2 EUR * 1.10 EUR/USD = 2.20 USD
+        assertEquals(0, new BigDecimal("2.20").compareTo(success.transaction().fees()));
+    }
+
+    @Test
+    void givenFxFailure_whenExecute_thenFeesFallBackToRateOne() {
+        UUID id = UUID.randomUUID();
+        Transaction existing = transactionWithCommission(id, Currency.USD, Currency.EUR, new BigDecimal("1"));
+        stubExisting(id, existing);
+        when(marketDataPort.getFxRate(Currency.EUR, Currency.USD))
+                .thenReturn(Uni.createFrom().failure(new RuntimeException("fx down")));
+
+        UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
+                UpdateTransactionUseCase.Result.Success.class,
+                service.execute(update(id, null, null, null, null, new BigDecimal("2"), null, null, null,
+                        null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
+
+        assertEquals(0, new BigDecimal("2").compareTo(success.transaction().fees()));
+    }
+
+    @Test
+    void givenUnrelatedFieldUpdate_whenFeesNotSupplied_thenExistingFeesCarriedOverWithoutReconversion() {
+        UUID id = UUID.randomUUID();
+        // Fees already converted to USD at some earlier write; commissionCurrency (EUR) still
+        // differs from currency (USD) -- must NOT be re-converted just because it's unrelated
+        // fields being updated here, or it would be double-converted on every subsequent edit.
+        Transaction existing = transactionWithCommission(id, Currency.USD, Currency.EUR, new BigDecimal("2.20"));
+        stubExisting(id, existing);
+
+        UpdateTransactionUseCase.Result.Success success = assertInstanceOf(
+                UpdateTransactionUseCase.Result.Success.class,
+                service.execute(update(id, null, null, null, null, null, null, null, "new notes",
+                        null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem());
+
+        assertEquals(0, new BigDecimal("2.20").compareTo(success.transaction().fees()));
+        verify(marketDataPort, never()).getFxRate(any(), any());
+    }
+
+    private static Transaction transactionWithCommission(
+            UUID id, Currency currency, Currency commissionCurrency, BigDecimal fees) {
+        return new Transaction(
+                id,
+                USER,
+                "AAPL",
+                TransactionType.BUY,
+                AssetType.COMMON_STOCK,
+                new BigDecimal("10"),
+                new BigDecimal("100"),
+                fees,
+                currency,
+                LocalDate.of(2024, 1, 1),
+                "notes",
+                false,
+                BigDecimal.ONE,
+                commissionCurrency,
+                "NASDAQ",
+                "US",
+                "Apple Inc",
+                OffsetDateTime.parse("2024-01-01T00:00:00Z"),
+                OffsetDateTime.parse("2024-01-01T00:00:00Z"));
     }
 
     private void stubExisting(UUID id, Transaction existing) {

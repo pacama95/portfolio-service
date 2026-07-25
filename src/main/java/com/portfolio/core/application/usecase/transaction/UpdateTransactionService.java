@@ -1,14 +1,17 @@
 package com.portfolio.core.application.usecase.transaction;
 
 import com.portfolio.core.domain.LedgerReplay;
+import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.Transaction;
 import com.portfolio.core.ports.incoming.UpdateTransactionUseCase;
+import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,9 +23,11 @@ public class UpdateTransactionService implements UpdateTransactionUseCase {
     private static final Logger LOG = Logger.getLogger(UpdateTransactionService.class);
 
     private final TransactionRepository transactionRepository;
+    private final MarketDataPort marketDataPort;
 
-    public UpdateTransactionService(TransactionRepository transactionRepository) {
+    public UpdateTransactionService(TransactionRepository transactionRepository, MarketDataPort marketDataPort) {
         this.transactionRepository = transactionRepository;
+        this.marketDataPort = marketDataPort;
     }
 
     @Override
@@ -42,32 +47,66 @@ public class UpdateTransactionService implements UpdateTransactionUseCase {
                         return Uni.createFrom().item(new Result.NotFound(command.id()));
                     }
                     Transaction existing = optional.get();
-                    Transaction updated = new Transaction(
-                            existing.id(),
-                            existing.userId(),
-                            command.ticker() != null ? command.ticker().trim().toUpperCase() : existing.ticker(),
-                            command.transactionType() != null ? command.transactionType() : existing.transactionType(),
-                            existing.assetType(),
-                            command.quantity() != null ? command.quantity() : existing.quantity(),
-                            command.price() != null ? command.price() : existing.price(),
-                            command.fees() != null ? command.fees() : existing.fees(),
-                            command.currency() != null ? command.currency() : existing.currency(),
-                            command.transactionDate() != null ? command.transactionDate() : existing.transactionDate(),
-                            command.notes() != null ? command.notes() : existing.notes(),
-                            command.fractional() != null ? command.fractional() : existing.fractional(),
-                            command.fractionalMultiplier() != null
-                                    ? command.fractionalMultiplier()
-                                    : existing.fractionalMultiplier(),
-                            command.commissionCurrency() != null
-                                    ? command.commissionCurrency()
-                                    : existing.commissionCurrency(),
-                            command.exchange() != null ? command.exchange() : existing.exchange(),
-                            command.country() != null ? command.country() : existing.country(),
-                            command.companyName() != null ? command.companyName() : existing.companyName(),
-                            existing.createdAt(),
-                            OffsetDateTime.now());
-                    return validateAndSave(existing, updated);
+                    Currency newCurrency = command.currency() != null ? command.currency() : existing.currency();
+                    Currency newCommissionCurrency = command.commissionCurrency() != null
+                            ? command.commissionCurrency()
+                            : existing.commissionCurrency();
+                    return convertFees(command.fees(), newCommissionCurrency, newCurrency, existing.fees())
+                            .flatMap(fees -> {
+                                Transaction updated = new Transaction(
+                                        existing.id(),
+                                        existing.userId(),
+                                        command.ticker() != null
+                                                ? command.ticker().trim().toUpperCase() : existing.ticker(),
+                                        command.transactionType() != null
+                                                ? command.transactionType() : existing.transactionType(),
+                                        existing.assetType(),
+                                        command.quantity() != null ? command.quantity() : existing.quantity(),
+                                        command.price() != null ? command.price() : existing.price(),
+                                        fees,
+                                        newCurrency,
+                                        command.transactionDate() != null
+                                                ? command.transactionDate() : existing.transactionDate(),
+                                        command.notes() != null ? command.notes() : existing.notes(),
+                                        command.fractional() != null
+                                                ? command.fractional() : existing.fractional(),
+                                        command.fractionalMultiplier() != null
+                                                ? command.fractionalMultiplier()
+                                                : existing.fractionalMultiplier(),
+                                        newCommissionCurrency,
+                                        command.exchange() != null ? command.exchange() : existing.exchange(),
+                                        command.country() != null ? command.country() : existing.country(),
+                                        command.companyName() != null
+                                                ? command.companyName() : existing.companyName(),
+                                        existing.createdAt(),
+                                        OffsetDateTime.now());
+                                return validateAndSave(existing, updated);
+                            });
                 });
+    }
+
+    /**
+     * Only converts when this request supplies a fresh raw fee amount ({@code newRawFees != null})
+     * -- a carried-over existing fee is already expressed in the transaction's currency (it was
+     * converted at the time it was originally written), so re-running conversion on it on every
+     * unrelated update would double-convert it.
+     */
+    private Uni<BigDecimal> convertFees(
+            BigDecimal newRawFees, Currency commissionCurrency, Currency currency, BigDecimal existingFees) {
+        if (newRawFees == null) {
+            return Uni.createFrom().item(existingFees);
+        }
+        if (commissionCurrency == null || commissionCurrency == currency
+                || newRawFees.compareTo(BigDecimal.ZERO) == 0) {
+            return Uni.createFrom().item(newRawFees);
+        }
+        return marketDataPort.getFxRate(commissionCurrency, currency)
+                .onFailure().recoverWithItem(failure -> {
+                    LOG.warnf(failure, "FX rate unavailable commissionCurrency=%s currency=%s; "
+                            + "falling back to rate=1 for fee conversion", commissionCurrency, currency);
+                    return BigDecimal.ONE;
+                })
+                .map(rate -> newRawFees.multiply(rate).setScale(6, RoundingMode.HALF_UP));
     }
 
     /**

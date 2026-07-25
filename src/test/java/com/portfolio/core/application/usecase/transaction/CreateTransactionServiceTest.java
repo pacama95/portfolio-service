@@ -7,6 +7,7 @@ import com.portfolio.core.model.TransactionType;
 import com.portfolio.core.model.UserId;
 import com.portfolio.core.model.event.TransactionCreatedEvent;
 import com.portfolio.core.ports.incoming.CreateTransactionUseCase;
+import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.TransactionEventPublisher;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
@@ -34,12 +35,13 @@ class CreateTransactionServiceTest {
 
     private final TransactionRepository repository = Mockito.mock(TransactionRepository.class);
     private final TransactionEventPublisher eventPublisher = Mockito.mock(TransactionEventPublisher.class);
+    private final MarketDataPort marketDataPort = Mockito.mock(MarketDataPort.class);
     private CreateTransactionService service;
 
     @BeforeEach
     void setUp() {
         when(eventPublisher.publishTransactionCreated(any())).thenReturn(Uni.createFrom().voidItem());
-        service = new CreateTransactionService(repository, eventPublisher);
+        service = new CreateTransactionService(repository, eventPublisher, marketDataPort);
     }
 
     @Test
@@ -324,6 +326,65 @@ class CreateTransactionServiceTest {
         assertEquals(0, BigDecimal.ONE.compareTo(success.transaction().fractionalMultiplier()));
     }
 
+    @Test
+    void givenForeignCommissionCurrency_whenExecute_thenFeesConvertedToTransactionCurrency() {
+        when(repository.save(any(Transaction.class))).thenAnswer(invocation -> {
+            Transaction saved = invocation.getArgument(0, Transaction.class);
+            return Uni.createFrom().item(saved);
+        });
+        stubLock(Map.of());
+        when(marketDataPort.getFxRate(Currency.EUR, Currency.USD))
+                .thenReturn(Uni.createFrom().item(new BigDecimal("1.10")));
+
+        CreateTransactionUseCase.Result result = service.execute(
+                validCommandBuilder().fees(new BigDecimal("2")).commissionCurrency(Currency.EUR).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        CreateTransactionUseCase.Result.Success success =
+                assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);
+        // 2 EUR * 1.10 EUR/USD = 2.20 USD; commissionCurrency preserved as originally billed.
+        assertEquals(0, new BigDecimal("2.20").compareTo(success.transaction().fees()));
+        assertEquals(Currency.EUR, success.transaction().commissionCurrency());
+    }
+
+    @Test
+    void givenForeignCommissionCurrencyAndFxFailure_whenExecute_thenFallsBackToRateOne() {
+        when(repository.save(any(Transaction.class))).thenAnswer(invocation -> {
+            Transaction saved = invocation.getArgument(0, Transaction.class);
+            return Uni.createFrom().item(saved);
+        });
+        stubLock(Map.of());
+        when(marketDataPort.getFxRate(Currency.EUR, Currency.USD))
+                .thenReturn(Uni.createFrom().failure(new RuntimeException("fx down")));
+
+        CreateTransactionUseCase.Result result = service.execute(
+                validCommandBuilder().fees(new BigDecimal("2")).commissionCurrency(Currency.EUR).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        CreateTransactionUseCase.Result.Success success =
+                assertInstanceOf(CreateTransactionUseCase.Result.Success.class, result);
+        assertEquals(0, new BigDecimal("2").compareTo(success.transaction().fees()));
+    }
+
+    @Test
+    void givenSameCommissionCurrency_whenExecute_thenNeverCallsFxRate() {
+        when(repository.save(any(Transaction.class))).thenAnswer(invocation -> {
+            Transaction saved = invocation.getArgument(0, Transaction.class);
+            return Uni.createFrom().item(saved);
+        });
+        stubLock(Map.of());
+
+        service.execute(validCommandBuilder().build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem();
+
+        verify(marketDataPort, never()).getFxRate(any(), any());
+    }
+
     private void stubLock(Map<String, List<Transaction>> byTicker) {
         when(repository.withTickersLocked(any(), any(), any())).thenAnswer(invocation -> {
             Function<Map<String, List<Transaction>>, Uni<Object>> action = invocation.getArgument(2);
@@ -363,6 +424,7 @@ class CreateTransactionServiceTest {
         CommandBuilder transactionDate(LocalDate transactionDate) { this.transactionDate = transactionDate; return this; }
         CommandBuilder fractional(Boolean fractional) { this.fractional = fractional; return this; }
         CommandBuilder fractionalMultiplier(BigDecimal fractionalMultiplier) { this.fractionalMultiplier = fractionalMultiplier; return this; }
+        CommandBuilder commissionCurrency(Currency commissionCurrency) { this.commissionCurrency = commissionCurrency; return this; }
 
         CreateTransactionUseCase.Command build() {
             return new CreateTransactionUseCase.Command(
