@@ -31,7 +31,20 @@ class GetPriceHistoryServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GetPriceHistoryService(marketDataPort);
+        service = new GetPriceHistoryService(marketDataPort, 3650);
+    }
+
+    @Test
+    void givenRangeExceedsMax_whenExecute_thenInvalidRequest() {
+        GetPriceHistoryService strict = new GetPriceHistoryService(marketDataPort, 5);
+
+        GetPriceHistoryUseCase.Result result = strict.execute(
+                new GetPriceHistoryUseCase.Query(USER, List.of("AAPL"), FROM, LocalDate.of(2024, 1, 20)))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(GetPriceHistoryUseCase.Result.InvalidRequest.class, result);
     }
 
     @Test

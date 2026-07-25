@@ -86,12 +86,14 @@ public class TransactionRepositoryAdapter implements TransactionRepository {
             TransactionType type,
             LocalDate fromDate,
             LocalDate toDate,
-            TransactionSortOrder sortOrder) {
+            TransactionSortOrder sortOrder,
+            Integer limit,
+            Integer offset) {
         TransactionEntity.TransactionTypeDb typeDb = type == null
                 ? null
                 : TransactionEntity.TransactionTypeDb.valueOf(type.name());
         boolean ascending = sortOrder == TransactionSortOrder.ASC;
-        return repository.search(userId.value(), ticker, typeDb, fromDate, toDate, ascending)
+        return repository.search(userId.value(), ticker, typeDb, fromDate, toDate, ascending, limit, offset)
                 .map(list -> list.stream().map(mapper::toDomain).toList());
     }
 

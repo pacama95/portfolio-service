@@ -34,7 +34,9 @@ public class TransactionPanacheRepository implements PanacheRepositoryBase<Trans
             TransactionEntity.TransactionTypeDb type,
             LocalDate fromDate,
             LocalDate toDate,
-            boolean ascending) {
+            boolean ascending,
+            Integer limit,
+            Integer offset) {
         StringBuilder query = new StringBuilder("userId = :userId");
         Parameters parameters = Parameters.with("userId", userId);
 
@@ -59,7 +61,12 @@ public class TransactionPanacheRepository implements PanacheRepositoryBase<Trans
                 ? Sort.by("transactionDate").ascending().and("createdAt").ascending()
                 : Sort.by("transactionDate").descending().and("createdAt").descending();
 
-        return find(query.toString(), sort, parameters).list();
+        var panacheQuery = find(query.toString(), sort, parameters);
+        if (limit != null) {
+            int start = offset != null ? offset : 0;
+            panacheQuery = panacheQuery.range(start, start + limit - 1);
+        }
+        return panacheQuery.list();
     }
 
     public Uni<Long> countByUser(String userId) {

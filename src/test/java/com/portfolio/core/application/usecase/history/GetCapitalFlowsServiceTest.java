@@ -33,7 +33,20 @@ class GetCapitalFlowsServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GetCapitalFlowsService(transactionRepository);
+        service = new GetCapitalFlowsService(transactionRepository, 3650);
+    }
+
+    @Test
+    void givenRangeExceedsMax_whenExecute_thenInvalidRequest() {
+        GetCapitalFlowsService strict = new GetCapitalFlowsService(transactionRepository, 5);
+
+        GetCapitalFlowsUseCase.Result result = strict.execute(
+                new GetCapitalFlowsUseCase.Query(USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 20)))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(GetCapitalFlowsUseCase.Result.InvalidRequest.class, result);
     }
 
     @Test

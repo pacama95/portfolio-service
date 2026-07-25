@@ -20,16 +20,24 @@ public class SearchTransactionsService implements SearchTransactionsUseCase {
 
     @Override
     public Uni<Result> execute(Query query) {
+        if (query.limit() != null && query.limit() <= 0) {
+            return Uni.createFrom().item(new Result.InvalidRequest("limit must be positive"));
+        }
+        if (query.offset() != null && query.offset() < 0) {
+            return Uni.createFrom().item(new Result.InvalidRequest("offset cannot be negative"));
+        }
         TransactionSortOrder sort = query.sortOrder() != null ? query.sortOrder() : TransactionSortOrder.DESC;
-        LOG.infof("Searching transactions ticker=%s type=%s from=%s to=%s sort=%s",
-                query.ticker(), query.type(), query.fromDate(), query.toDate(), sort);
+        LOG.infof("Searching transactions ticker=%s type=%s from=%s to=%s sort=%s limit=%s offset=%s",
+                query.ticker(), query.type(), query.fromDate(), query.toDate(), sort, query.limit(), query.offset());
         return transactionRepository.search(
                         query.userId(),
                         query.ticker(),
                         query.type(),
                         query.fromDate(),
                         query.toDate(),
-                        sort)
+                        sort,
+                        query.limit(),
+                        query.offset())
                 .invoke(txs -> LOG.infof("Search returned count=%d", txs.size()))
                 .map(Result.Success::new);
     }

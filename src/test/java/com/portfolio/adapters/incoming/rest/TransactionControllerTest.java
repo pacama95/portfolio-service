@@ -180,19 +180,66 @@ class TransactionControllerTest {
         Transaction transaction = sampleTransaction();
         TransactionResponse responseBody = sampleTransactionResponse(transaction);
         SearchTransactionsUseCase.Query query = new SearchTransactionsUseCase.Query(
-                USER_ID, "AAPL", TransactionType.BUY, from, to, TransactionSortOrder.ASC);
+                USER_ID, "AAPL", TransactionType.BUY, from, to, TransactionSortOrder.ASC, null, null);
 
         when(searchTransactionsUseCase.execute(query))
                 .thenReturn(Uni.createFrom().item(new SearchTransactionsUseCase.Result.Success(List.of(transaction))));
         when(mapper.toResponse(transaction)).thenReturn(responseBody);
 
-        Response response = controller.search("AAPL", TransactionType.BUY, from, to, TransactionSortOrder.ASC)
+        Response response = controller.search("AAPL", TransactionType.BUY, from, to, TransactionSortOrder.ASC, null, null)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitItem()
                 .getItem();
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertEquals(List.of(responseBody), response.getEntity());
+    }
+
+    @Test
+    void givenInvalidPagination_whenSearch_thenReturns400() {
+        SearchTransactionsUseCase.Result.InvalidRequest invalid =
+                new SearchTransactionsUseCase.Result.InvalidRequest("limit must be positive");
+        when(searchTransactionsUseCase.execute(new SearchTransactionsUseCase.Query(
+                        USER_ID, null, null, null, null, TransactionSortOrder.DESC, -1, null)))
+                .thenReturn(Uni.createFrom().item(invalid));
+
+        Response response = controller.search(null, null, null, null, TransactionSortOrder.DESC, -1, null)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+        assertEquals(invalid, response.getEntity());
+    }
+
+    @Test
+    void givenInvalidRequest_whenListAll_thenReturns400() {
+        SearchTransactionsUseCase.Result.InvalidRequest invalid =
+                new SearchTransactionsUseCase.Result.InvalidRequest("bad request");
+        when(searchTransactionsUseCase.execute(SearchTransactionsUseCase.Query.all(USER_ID)))
+                .thenReturn(Uni.createFrom().item(invalid));
+
+        Response response = controller.listAll()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    void givenInvalidRequest_whenListByTicker_thenReturns400() {
+        SearchTransactionsUseCase.Result.InvalidRequest invalid =
+                new SearchTransactionsUseCase.Result.InvalidRequest("bad request");
+        when(searchTransactionsUseCase.execute(SearchTransactionsUseCase.Query.byTicker(USER_ID, "AAPL")))
+                .thenReturn(Uni.createFrom().item(invalid));
+
+        Response response = controller.listByTicker("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
     }
 
     @Test

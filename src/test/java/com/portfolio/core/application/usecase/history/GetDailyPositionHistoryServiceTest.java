@@ -36,7 +36,21 @@ class GetDailyPositionHistoryServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GetDailyPositionHistoryService(transactionRepository);
+        service = new GetDailyPositionHistoryService(transactionRepository, 3650);
+    }
+
+    @Test
+    void givenRangeExceedsMax_whenExecute_thenInvalidRequest() {
+        GetDailyPositionHistoryService strict = new GetDailyPositionHistoryService(transactionRepository, 5);
+
+        GetDailyPositionHistoryUseCase.Result result = strict.execute(
+                new GetDailyPositionHistoryUseCase.Query(
+                        USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 10), null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(GetDailyPositionHistoryUseCase.Result.InvalidRequest.class, result);
     }
 
     @Test

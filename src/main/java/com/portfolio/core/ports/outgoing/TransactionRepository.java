@@ -35,7 +35,9 @@ public interface TransactionRepository {
             TransactionType type,
             LocalDate fromDate,
             LocalDate toDate,
-            TransactionSortOrder sortOrder);
+            TransactionSortOrder sortOrder,
+            Integer limit,
+            Integer offset);
 
     Uni<Boolean> deleteById(UserId userId, UUID id);
 

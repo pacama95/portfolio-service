@@ -42,7 +42,21 @@ class GetPerformanceInputsServiceTest {
     @BeforeEach
     void setUp() {
         service = new GetPerformanceInputsService(
-                valuationHistoryUseCase, capitalFlowsUseCase, marketDataPort, "USD");
+                valuationHistoryUseCase, capitalFlowsUseCase, marketDataPort, "USD", 3650);
+    }
+
+    @Test
+    void givenRangeExceedsMax_whenExecute_thenInvalidRequest() {
+        GetPerformanceInputsService strict = new GetPerformanceInputsService(
+                valuationHistoryUseCase, capitalFlowsUseCase, marketDataPort, "USD", 5);
+
+        GetPerformanceInputsUseCase.Result result = strict.execute(
+                new GetPerformanceInputsUseCase.Query(USER, FROM, LocalDate.of(2024, 1, 20)))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(GetPerformanceInputsUseCase.Result.InvalidRequest.class, result);
     }
 
     @Test

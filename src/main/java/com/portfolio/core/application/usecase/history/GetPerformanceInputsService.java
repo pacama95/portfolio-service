@@ -17,6 +17,7 @@ import org.jboss.logging.Logger;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,24 +38,30 @@ public class GetPerformanceInputsService implements GetPerformanceInputsUseCase 
     private final GetCapitalFlowsUseCase capitalFlowsUseCase;
     private final MarketDataPort marketDataPort;
     private final Currency baseCurrency;
+    private final long maxRangeDays;
 
     public GetPerformanceInputsService(
             GetPortfolioValuationHistoryUseCase valuationHistoryUseCase,
             GetCapitalFlowsUseCase capitalFlowsUseCase,
             MarketDataPort marketDataPort,
             @ConfigProperty(name = "application.portfolio.base-currency", defaultValue = "USD")
-            String baseCurrency) {
+            String baseCurrency,
+            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "3650")
+            long maxRangeDays) {
         this.valuationHistoryUseCase = valuationHistoryUseCase;
         this.capitalFlowsUseCase = capitalFlowsUseCase;
         this.marketDataPort = marketDataPort;
         this.baseCurrency = Currency.valueOf(baseCurrency);
+        this.maxRangeDays = maxRangeDays;
     }
 
     @Override
     public Uni<Result> execute(Query query) {
         LOG.infof("Getting performance inputs from=%s to=%s", query.from(), query.to());
-        if (query.from() == null || query.to() == null || query.from().isAfter(query.to())) {
-            return Uni.createFrom().item(new Result.InvalidRequest("from/to dates are required and from <= to"));
+        if (query.from() == null || query.to() == null || query.from().isAfter(query.to())
+                || ChronoUnit.DAYS.between(query.from(), query.to()) > maxRangeDays) {
+            return Uni.createFrom().item(new Result.InvalidRequest(
+                    "from/to dates are required, from <= to, and range must not exceed " + maxRangeDays + " days"));
         }
         // Sequential: Hibernate Reactive sessions cannot run concurrently on the same Vert.x context.
         return valuationHistoryUseCase.execute(

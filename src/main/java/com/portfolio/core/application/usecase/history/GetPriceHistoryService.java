@@ -5,8 +5,10 @@ import com.portfolio.core.ports.incoming.GetPriceHistoryUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,17 +18,24 @@ public class GetPriceHistoryService implements GetPriceHistoryUseCase {
     private static final Logger LOG = Logger.getLogger(GetPriceHistoryService.class);
 
     private final MarketDataPort marketDataPort;
+    private final long maxRangeDays;
 
-    public GetPriceHistoryService(MarketDataPort marketDataPort) {
+    public GetPriceHistoryService(
+            MarketDataPort marketDataPort,
+            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "3650")
+            long maxRangeDays) {
         this.marketDataPort = marketDataPort;
+        this.maxRangeDays = maxRangeDays;
     }
 
     @Override
     public Uni<Result> execute(Query query) {
         LOG.infof("Getting price history symbols=%s from=%s to=%s",
                 query.symbols(), query.from(), query.to());
-        if (query.from() == null || query.to() == null || query.from().isAfter(query.to())) {
-            return Uni.createFrom().item(new Result.InvalidRequest("from/to dates are required and from <= to"));
+        if (query.from() == null || query.to() == null || query.from().isAfter(query.to())
+                || ChronoUnit.DAYS.between(query.from(), query.to()) > maxRangeDays) {
+            return Uni.createFrom().item(new Result.InvalidRequest(
+                    "from/to dates are required, from <= to, and range must not exceed " + maxRangeDays + " days"));
         }
         if (query.symbols() == null || query.symbols().isEmpty()) {
             return Uni.createFrom().item(new Result.InvalidRequest("symbols are required"));

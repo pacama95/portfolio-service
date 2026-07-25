@@ -103,11 +103,26 @@ class TransactionRepositoryIT {
                         TransactionType.BUY,
                         LocalDate.of(2024, 1, 1),
                         LocalDate.of(2024, 1, 3),
-                        TransactionSortOrder.ASC),
+                        TransactionSortOrder.ASC,
+                        null,
+                        null),
                 list -> {
                     assertEquals(1, list.size());
                     assertEquals(AAPL_BUY_ID, list.getFirst().id());
                 });
+    }
+
+    @Test
+    @RunOnVertxContext
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-seed.sql")
+    void givenLimitAndOffset_whenSearch_thenReturnsPagedSlice(UniAsserter asserter) {
+        // user-a has 3 txs ascending by date: AAPL BUY(1/1), MSFT BUY(1/2), AAPL SELL(1/5).
+        asserter.assertThat(
+                () -> repository.search(USER_A, null, null, null, null, TransactionSortOrder.ASC, 2, 0),
+                list -> assertEquals(2, list.size()));
+        asserter.assertThat(
+                () -> repository.search(USER_A, null, null, null, null, TransactionSortOrder.ASC, 2, 2),
+                list -> assertEquals(1, list.size()));
     }
 
     @Test

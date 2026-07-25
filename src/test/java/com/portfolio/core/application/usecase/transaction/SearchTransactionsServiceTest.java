@@ -43,11 +43,12 @@ class SearchTransactionsServiceTest {
     @Test
     void givenNullSortOrder_whenExecute_thenDefaultsToDesc() {
         Transaction tx = transaction("AAPL");
-        when(repository.search(eq(USER), isNull(), isNull(), isNull(), isNull(), eq(TransactionSortOrder.DESC)))
+        when(repository.search(
+                eq(USER), isNull(), isNull(), isNull(), isNull(), eq(TransactionSortOrder.DESC), isNull(), isNull()))
                 .thenReturn(Uni.createFrom().item(List.of(tx)));
 
         SearchTransactionsUseCase.Result result = service.execute(
-                new SearchTransactionsUseCase.Query(USER, null, null, null, null, null))
+                new SearchTransactionsUseCase.Query(USER, null, null, null, null, null, null, null))
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitItem()
                 .getItem();
@@ -57,7 +58,8 @@ class SearchTransactionsServiceTest {
         assertEquals(1, success.transactions().size());
 
         ArgumentCaptor<TransactionSortOrder> sortCaptor = ArgumentCaptor.forClass(TransactionSortOrder.class);
-        verify(repository).search(eq(USER), isNull(), isNull(), isNull(), isNull(), sortCaptor.capture());
+        verify(repository).search(
+                eq(USER), isNull(), isNull(), isNull(), isNull(), sortCaptor.capture(), isNull(), isNull());
         assertEquals(TransactionSortOrder.DESC, sortCaptor.getValue());
     }
 
@@ -65,7 +67,7 @@ class SearchTransactionsServiceTest {
     void givenTickerQuery_whenExecute_thenReturnsMatchingTransactions() {
         Transaction tx = transaction("AAPL");
         when(repository.search(
-                USER, "AAPL", null, null, null, TransactionSortOrder.DESC))
+                USER, "AAPL", null, null, null, TransactionSortOrder.DESC, null, null))
                 .thenReturn(Uni.createFrom().item(List.of(tx)));
 
         SearchTransactionsUseCase.Result result = service.execute(
@@ -78,6 +80,46 @@ class SearchTransactionsServiceTest {
                 assertInstanceOf(SearchTransactionsUseCase.Result.Success.class, result);
         assertEquals(1, success.transactions().size());
         assertEquals("AAPL", success.transactions().getFirst().ticker());
+    }
+
+    @Test
+    void givenPagination_whenExecute_thenPassesLimitAndOffsetThrough() {
+        Transaction tx = transaction("AAPL");
+        when(repository.search(
+                eq(USER), isNull(), isNull(), isNull(), isNull(), eq(TransactionSortOrder.DESC), eq(10), eq(20)))
+                .thenReturn(Uni.createFrom().item(List.of(tx)));
+
+        SearchTransactionsUseCase.Result result = service.execute(
+                new SearchTransactionsUseCase.Query(USER, null, null, null, null, null, 10, 20))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(SearchTransactionsUseCase.Result.Success.class, result);
+        verify(repository).search(
+                eq(USER), isNull(), isNull(), isNull(), isNull(), eq(TransactionSortOrder.DESC), eq(10), eq(20));
+    }
+
+    @Test
+    void givenNegativeLimit_whenExecute_thenInvalidRequest() {
+        SearchTransactionsUseCase.Result result = service.execute(
+                new SearchTransactionsUseCase.Query(USER, null, null, null, null, null, -1, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(SearchTransactionsUseCase.Result.InvalidRequest.class, result);
+    }
+
+    @Test
+    void givenNegativeOffset_whenExecute_thenInvalidRequest() {
+        SearchTransactionsUseCase.Result result = service.execute(
+                new SearchTransactionsUseCase.Query(USER, null, null, null, null, null, null, -1))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(SearchTransactionsUseCase.Result.InvalidRequest.class, result);
     }
 
     private static Transaction transaction(String ticker) {

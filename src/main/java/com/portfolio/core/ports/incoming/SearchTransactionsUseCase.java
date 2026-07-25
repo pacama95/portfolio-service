@@ -15,6 +15,7 @@ public interface SearchTransactionsUseCase {
 
     sealed interface Result {
         record Success(List<Transaction> transactions) implements Result {}
+        record InvalidRequest(String message) implements Result {}
     }
 
     record Query(
@@ -23,14 +24,16 @@ public interface SearchTransactionsUseCase {
             TransactionType type,
             LocalDate fromDate,
             LocalDate toDate,
-            TransactionSortOrder sortOrder
+            TransactionSortOrder sortOrder,
+            Integer limit,
+            Integer offset
     ) {
         public static Query all(UserId userId) {
-            return new Query(userId, null, null, null, null, TransactionSortOrder.DESC);
+            return new Query(userId, null, null, null, null, TransactionSortOrder.DESC, null, null);
         }
 
         public static Query byTicker(UserId userId, String ticker) {
-            return new Query(userId, ticker, null, null, null, TransactionSortOrder.DESC);
+            return new Query(userId, ticker, null, null, null, TransactionSortOrder.DESC, null, null);
         }
     }
 }

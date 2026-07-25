@@ -112,6 +112,8 @@ public class TransactionController {
                 .map(result -> switch (result) {
                     case SearchTransactionsUseCase.Result.Success success ->
                             Response.ok(success.transactions().stream().map(mapper::toResponse).toList()).build();
+                    case SearchTransactionsUseCase.Result.InvalidRequest invalid ->
+                            Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
                 });
     }
 
@@ -124,6 +126,8 @@ public class TransactionController {
                 .map(result -> switch (result) {
                     case SearchTransactionsUseCase.Result.Success success ->
                             Response.ok(success.transactions().stream().map(mapper::toResponse).toList()).build();
+                    case SearchTransactionsUseCase.Result.InvalidRequest invalid ->
+                            Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
                 });
     }
 
@@ -135,12 +139,18 @@ public class TransactionController {
             @QueryParam("type") TransactionType type,
             @QueryParam("fromDate") LocalDate fromDate,
             @QueryParam("toDate") LocalDate toDate,
-            @QueryParam("sort") @DefaultValue("DESC") TransactionSortOrder sort) {
+            @QueryParam("sort") @DefaultValue("DESC") TransactionSortOrder sort,
+            @QueryParam("limit") Integer limit,
+            @QueryParam("offset") Integer offset) {
         return searchTransactionsUseCase.execute(new SearchTransactionsUseCase.Query(
-                        userContext.requireUserId(), ticker, type, fromDate, toDate, sort))
+                        userContext.requireUserId(), ticker, type, fromDate, toDate, sort, limit, offset))
                 .map(result -> switch (result) {
                     case SearchTransactionsUseCase.Result.Success success ->
                             Response.ok(success.transactions().stream().map(mapper::toResponse).toList()).build();
+                    case SearchTransactionsUseCase.Result.InvalidRequest invalid -> {
+                        LOG.warnf("Search transactions rejected reason=%s", invalid.message());
+                        yield Response.status(Response.Status.BAD_REQUEST).entity(invalid).build();
+                    }
                 });
     }
 
