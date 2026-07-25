@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
@@ -80,6 +81,7 @@ class GetPortfolioSummaryServiceTest {
         assertEquals(0, new BigDecimal("2000").compareTo(summary.totalCost()));
         assertEquals(2, summary.totalPositions());
         assertEquals(2, summary.activePositions());
+        assertTrue(summary.complete());
     }
 
     @Test
@@ -201,6 +203,7 @@ class GetPortfolioSummaryServiceTest {
         assertEquals(0, BigDecimal.ZERO.compareTo(summary.totalMarketValue()));
         assertEquals(0, new BigDecimal("1000").compareTo(summary.totalCost()));
         assertEquals(1, summary.totalPositions());
+        assertFalse(summary.complete());
     }
 
     @Test

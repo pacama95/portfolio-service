@@ -100,6 +100,7 @@ class PortfolioControllerTest {
                 summary.totalUnrealizedGainLoss(),
                 summary.totalUnrealizedGainLossPercentage(),
                 summary.totalPositions(),
-                summary.activePositions());
+                summary.activePositions(),
+                summary.complete());
     }
 }

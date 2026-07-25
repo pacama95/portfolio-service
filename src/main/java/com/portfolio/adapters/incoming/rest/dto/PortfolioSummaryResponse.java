@@ -13,6 +13,7 @@ public record PortfolioSummaryResponse(
         BigDecimal totalUnrealizedGainLoss,
         BigDecimal totalUnrealizedGainLossPercentage,
         int totalPositions,
-        int activePositions
+        int activePositions,
+        boolean complete
 ) {
 }

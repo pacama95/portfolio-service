@@ -61,11 +61,13 @@ public class GetPortfolioSummaryService implements GetPortfolioSummaryUseCase {
                     baseCurrency, BigDecimal.ZERO, BigDecimal.ZERO, 0, 0));
         }
         Uni<List<Position>> enriched = Uni.createFrom().item(new ArrayList<Position>());
+        boolean[] allPriced = {true};
         for (Position position : positions) {
             enriched = enriched.flatMap(list -> marketDataPort.getSpotPrice(position.ticker())
                     .onFailure().recoverWithItem(failure -> {
                         LOG.warnf(failure, "Spot price unavailable ticker=%s; continuing without price",
                                 position.ticker());
+                        allPriced[0] = false;
                         return null;
                     })
                     .flatMap(price -> convertToBase(position.withLatestMarketPrice(price))
@@ -82,7 +84,7 @@ public class GetPortfolioSummaryService implements GetPortfolioSummaryUseCase {
                     .map(p -> p.totalInvestedAmount() != null ? p.totalInvestedAmount() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             int active = (int) list.stream().filter(Position::active).count();
-            return PortfolioSummary.of(baseCurrency, marketValue, cost, list.size(), active);
+            return PortfolioSummary.of(baseCurrency, marketValue, cost, list.size(), active, allPriced[0]);
         });
     }
 
