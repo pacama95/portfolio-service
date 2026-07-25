@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -136,6 +137,10 @@ public final class LedgerReplay {
         for (Map.Entry<String, List<Transaction>> entry : byTicker.entrySet()) {
             String ticker = entry.getKey();
             State state = State.empty();
+            // Upsert by date (not a plain append) so a same-day buy+sell collapses to a single
+            // end-of-day row instead of one row per transaction; chronological() guarantees the
+            // last write for a given date is the correct end-of-day state.
+            Map<LocalDate, DailyPositionSnapshot> byDate = new TreeMap<>();
             for (Transaction tx : chronological(entry.getValue())) {
                 if (tx.transactionDate().isAfter(to)) {
                     break;
@@ -156,7 +161,7 @@ public final class LedgerReplay {
                 if (tx.transactionType() == TransactionType.DIVIDEND) {
                     continue;
                 }
-                snapshots.add(new DailyPositionSnapshot(
+                byDate.put(tx.transactionDate(), new DailyPositionSnapshot(
                         ticker,
                         tx.transactionDate(),
                         state.sharesOwned(),
@@ -164,6 +169,7 @@ public final class LedgerReplay {
                         state.totalInvestedAmount(),
                         state.currency()));
             }
+            snapshots.addAll(byDate.values());
         }
         snapshots.sort(Comparator
                 .comparing(DailyPositionSnapshot::snapshotDate)
@@ -197,7 +203,7 @@ public final class LedgerReplay {
                     tx.currency(), tx.quantity().multiply(tx.price()).subtract(fees), fees));
             case DIVIDEND -> List.of(new CapitalFlowEntry(
                     tx.id(), tx.ticker(), tx.transactionDate(), CapitalFlowKind.DIVIDEND,
-                    tx.currency(), tx.quantity().multiply(tx.price()), fees));
+                    tx.currency(), tx.quantity().multiply(tx.price()).subtract(fees), fees));
             case SPLIT -> List.of();
         };
     }

@@ -133,6 +133,38 @@ class LedgerReplayTest {
     }
 
     @Test
+    void givenSameDayBuyAndSell_whenDailySnapshots_thenOnlyOneRowPerDay() {
+        LocalDate day = LocalDate.of(2024, 1, 5);
+        Transaction buy = txWithCreatedAt(
+                "AAPL", TransactionType.BUY, "10", "100", BigDecimal.ZERO, day,
+                OffsetDateTime.parse("2024-01-05T09:00:00Z"));
+        Transaction sell = txWithCreatedAt(
+                "AAPL", TransactionType.SELL, "4", "110", BigDecimal.ZERO, day,
+                OffsetDateTime.parse("2024-01-05T15:00:00Z"));
+
+        List<DailyPositionSnapshot> snapshots = LedgerReplay.dailySnapshots(
+                List.of(buy, sell), LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 31));
+
+        assertEquals(1, snapshots.size());
+        assertEquals(day, snapshots.getFirst().snapshotDate());
+        assertEquals(0, new BigDecimal("6").compareTo(snapshots.getFirst().sharesOwned()));
+    }
+
+    @Test
+    void givenDividendWithFees_whenCapitalFlows_thenAmountIsNetOfFees() {
+        List<Transaction> txs = List.of(
+                tx("AAPL", TransactionType.BUY, "10", "100", "0", LocalDate.of(2024, 1, 1)),
+                tx("AAPL", TransactionType.DIVIDEND, "10", "1", "2", LocalDate.of(2024, 1, 2)));
+
+        var flows = LedgerReplay.capitalFlows(txs);
+
+        var dividend = flows.stream().filter(f -> f.kind() == CapitalFlowKind.DIVIDEND).findFirst().orElseThrow();
+        // gross 10*1=10, fees=2 -> net 8
+        assertEquals(0, new BigDecimal("8").compareTo(dividend.amount()));
+        assertEquals(0, new BigDecimal("2").compareTo(dividend.fees()));
+    }
+
+    @Test
     void givenTrades_whenCapitalFlows_thenBuyNegativeSellPositiveDividendPositive() {
         List<Transaction> txs = List.of(
                 tx("AAPL", TransactionType.BUY, "10", "100", "2", LocalDate.of(2024, 1, 1)),
@@ -478,5 +510,35 @@ class LedgerReplayTest {
                 ticker + " Inc",
                 OffsetDateTime.parse("2024-01-01T00:00:00Z"),
                 OffsetDateTime.parse("2024-01-01T00:00:00Z"));
+    }
+
+    private static Transaction txWithCreatedAt(
+            String ticker,
+            TransactionType type,
+            String qty,
+            String price,
+            BigDecimal fees,
+            LocalDate date,
+            OffsetDateTime createdAt) {
+        return new Transaction(
+                UUID.randomUUID(),
+                USER,
+                ticker,
+                type,
+                AssetType.COMMON_STOCK,
+                new BigDecimal(qty),
+                new BigDecimal(price),
+                fees,
+                Currency.USD,
+                date,
+                null,
+                false,
+                BigDecimal.ONE,
+                Currency.USD,
+                "NASDAQ",
+                "US",
+                ticker + " Inc",
+                createdAt,
+                createdAt);
     }
 }
