@@ -22,21 +22,37 @@ class ReactiveRateLimiterTest {
     }
 
     @Test
-    void givenConsumedSlot_whenAcquireAgain_thenCompletesAfterSpacing() {
-        // 600 credits/min => 100ms spacing
-        ReactiveRateLimiter limiter = new ReactiveRateLimiter("test", 600, Duration.ofMinutes(2));
+    void givenUnspentWindow_whenAcquiringWholeBudget_thenAllCompleteWithoutDelay() {
+        ReactiveRateLimiter limiter = new ReactiveRateLimiter("test", 8, Duration.ofMinutes(2));
+
+        long start = System.nanoTime();
+        for (int i = 0; i < 8; i++) {
+            limiter.acquire()
+                    .subscribe().withSubscriber(UniAssertSubscriber.create())
+                    .awaitItem(Duration.ofSeconds(1));
+        }
+        long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
+
+        assertTrue(elapsedMillis < 500,
+                "a full minute's budget should burst through, took " + elapsedMillis + "ms");
+    }
+
+    @Test
+    void givenSpentWindow_whenAcquireAgain_thenWaitsForOldestCreditToAgeOut() {
+        // Budget of 2/min: the third caller waits until the first grant leaves the 60s window.
+        ReactiveRateLimiter limiter = new ReactiveRateLimiter("test", 2, Duration.ofMinutes(2));
 
         limiter.acquire()
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitItem(Duration.ofSeconds(1));
-
-        long start = System.nanoTime();
         limiter.acquire()
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
-                .awaitItem(Duration.ofSeconds(5));
-        long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
+                .awaitItem(Duration.ofSeconds(1));
 
-        assertTrue(elapsedMillis >= 80, "second acquire should wait ~100ms, waited " + elapsedMillis + "ms");
+        UniAssertSubscriber<Void> third = limiter.acquire()
+                .subscribe().withSubscriber(UniAssertSubscriber.create());
+
+        third.assertNotTerminated();
     }
 
     @Test
@@ -61,34 +77,33 @@ class ReactiveRateLimiterTest {
 
     @Test
     void givenRejection_whenLimiterFreesUp_thenSlotWasNotConsumed() {
-        // maxWait covers one queued slot (spacing 100ms) but not two.
-        ReactiveRateLimiter limiter = new ReactiveRateLimiter("test", 600, Duration.ofMillis(150));
+        // Budget of 1/min with a maxWait that no post-budget wait can satisfy.
+        ReactiveRateLimiter limiter = new ReactiveRateLimiter("test", 1, Duration.ofMillis(150));
 
         limiter.acquire()
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitItem(Duration.ofSeconds(1));
-        UniAssertSubscriber<Void> queued = limiter.acquire()
-                .subscribe().withSubscriber(UniAssertSubscriber.create());
-        // Queue is now ~200ms deep; a third caller is rejected...
         limiter.acquire()
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitFailure(Duration.ofSeconds(1))
                 .assertFailedWith(ReactiveRateLimiter.RateLimitExceededException.class);
 
-        queued.awaitItem(Duration.ofSeconds(5));
-
-        // ...and because the rejection consumed nothing, the next caller queues normally.
-        limiter.acquire()
+        // The rejection consumed nothing, so the retry-after still reflects only the first grant.
+        Throwable failure = limiter.acquire()
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
-                .awaitItem(Duration.ofSeconds(5));
+                .awaitFailure(Duration.ofSeconds(1))
+                .getFailure();
+
+        ReactiveRateLimiter.RateLimitExceededException rejected =
+                assertInstanceOf(ReactiveRateLimiter.RateLimitExceededException.class, failure);
+        assertTrue(rejected.retryAfter().compareTo(Duration.ofSeconds(60)) <= 0,
+                "retryAfter should not have grown past one window, was " + rejected.retryAfter());
     }
 
     @Test
-    void givenConcurrentAcquires_thenAllCompleteSerializedBySpacing() {
-        // 3 acquires at 1200 credits/min (50ms spacing) => last completes >= ~100ms in.
-        ReactiveRateLimiter limiter = new ReactiveRateLimiter("test", 1200, Duration.ofMinutes(2));
+    void givenConcurrentAcquiresBeyondBudget_thenOnlyTheOverflowIsDelayed() {
+        ReactiveRateLimiter limiter = new ReactiveRateLimiter("test", 2, Duration.ofMinutes(2));
 
-        long start = System.nanoTime();
         UniAssertSubscriber<Void> first = limiter.acquire()
                 .subscribe().withSubscriber(UniAssertSubscriber.create());
         UniAssertSubscriber<Void> second = limiter.acquire()
@@ -96,12 +111,9 @@ class ReactiveRateLimiterTest {
         UniAssertSubscriber<Void> third = limiter.acquire()
                 .subscribe().withSubscriber(UniAssertSubscriber.create());
 
-        first.awaitItem(Duration.ofSeconds(5));
-        second.awaitItem(Duration.ofSeconds(5));
-        third.awaitItem(Duration.ofSeconds(5));
-        long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
-
-        assertTrue(elapsedMillis >= 80, "third acquire should wait ~100ms, waited " + elapsedMillis + "ms");
+        first.awaitItem(Duration.ofSeconds(1));
+        second.awaitItem(Duration.ofSeconds(1));
+        third.assertNotTerminated();
     }
 
     @Test
