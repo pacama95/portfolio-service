@@ -48,35 +48,43 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
         if (entries == null || entries.isEmpty()) {
             return Uni.createFrom().voidItem();
         }
-        return Panache.getSession().flatMap(session -> {
-            Uni<Void> chain = Uni.createFrom().voidItem();
-            for (PriceHistoryEntry entry : entries) {
-                chain = chain.chain(() -> session.createQuery(
-                                "from PriceHistoryEntity p where p.symbol = :symbol and p.priceDate = :date",
-                                PriceHistoryEntity.class)
-                        .setParameter("symbol", entry.symbol())
-                        .setParameter("date", entry.priceDate())
-                        .getSingleResultOrNull()
-                        .flatMap(existing -> {
-                            OffsetDateTime now = OffsetDateTime.now();
-                            PriceHistoryEntity entity = existing != null ? existing : new PriceHistoryEntity();
-                            if (entity.id == null) {
-                                entity.id = UUID.randomUUID();
-                                entity.createdAt = now;
-                            }
-                            entity.symbol = entry.symbol();
-                            entity.priceDate = entry.priceDate();
-                            entity.closePrice = entry.closePrice();
-                            entity.adjustedClosePrice = entry.adjustedClosePrice();
-                            entity.currency = TransactionEntity.CurrencyDb.valueOf(entry.currency().name());
-                            entity.provider = "twelvedata";
-                            entity.fetchedAt = entry.fetchedAt() != null ? entry.fetchedAt() : now;
-                            entity.updatedAt = now;
-                            return session.merge(entity).replaceWithVoid();
-                        }));
+        OffsetDateTime now = OffsetDateTime.now();
+        StringBuilder sql = new StringBuilder(
+                "insert into price_history "
+                        + "(symbol, price_date, close_price, adjusted_close_price, currency, provider, "
+                        + "fetched_at, updated_at) values ");
+        for (int i = 0; i < entries.size(); i++) {
+            if (i > 0) {
+                sql.append(", ");
             }
-            return chain;
-        });
+            sql.append("(:symbol").append(i).append(", :date").append(i).append(", :close").append(i)
+                    .append(", :adjClose").append(i).append(", (:currency").append(i).append(")::currency_type")
+                    .append(", :provider").append(i).append(", :fetchedAt").append(i)
+                    .append(", :updatedAt").append(i).append(")");
+        }
+        sql.append(" on conflict (symbol, price_date) do update set "
+                + "close_price = excluded.close_price, "
+                + "adjusted_close_price = excluded.adjusted_close_price, "
+                + "currency = excluded.currency, "
+                + "provider = excluded.provider, "
+                + "fetched_at = excluded.fetched_at, "
+                + "updated_at = excluded.updated_at");
+
+        return Panache.getSession().flatMap(session -> {
+            var query = session.createNativeQuery(sql.toString());
+            for (int i = 0; i < entries.size(); i++) {
+                PriceHistoryEntry entry = entries.get(i);
+                query.setParameter("symbol" + i, entry.symbol());
+                query.setParameter("date" + i, entry.priceDate());
+                query.setParameter("close" + i, entry.closePrice());
+                query.setParameter("adjClose" + i, entry.adjustedClosePrice());
+                query.setParameter("currency" + i, entry.currency().name());
+                query.setParameter("provider" + i, "twelvedata");
+                query.setParameter("fetchedAt" + i, entry.fetchedAt() != null ? entry.fetchedAt() : now);
+                query.setParameter("updatedAt" + i, now);
+            }
+            return query.executeUpdate();
+        }).replaceWithVoid();
     }
 
     @Override
@@ -101,36 +109,39 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
         if (entries == null || entries.isEmpty()) {
             return Uni.createFrom().voidItem();
         }
-        return Panache.getSession().flatMap(session -> {
-            Uni<Void> chain = Uni.createFrom().voidItem();
-            for (FxRateEntry entry : entries) {
-                chain = chain.chain(() -> session.createQuery(
-                                "from FxRateHistoryEntity f where f.baseCurrency = :base and f.quoteCurrency = :quote "
-                                        + "and f.rateDate = :date",
-                                FxRateHistoryEntity.class)
-                        .setParameter("base", TransactionEntity.CurrencyDb.valueOf(entry.baseCurrency().name()))
-                        .setParameter("quote", TransactionEntity.CurrencyDb.valueOf(entry.quoteCurrency().name()))
-                        .setParameter("date", entry.rateDate())
-                        .getSingleResultOrNull()
-                        .flatMap(existing -> {
-                            OffsetDateTime now = OffsetDateTime.now();
-                            FxRateHistoryEntity entity = existing != null ? existing : new FxRateHistoryEntity();
-                            if (entity.id == null) {
-                                entity.id = UUID.randomUUID();
-                                entity.createdAt = now;
-                            }
-                            entity.baseCurrency = TransactionEntity.CurrencyDb.valueOf(entry.baseCurrency().name());
-                            entity.quoteCurrency = TransactionEntity.CurrencyDb.valueOf(entry.quoteCurrency().name());
-                            entity.rateDate = entry.rateDate();
-                            entity.rate = entry.rate();
-                            entity.provider = "twelvedata";
-                            entity.fetchedAt = entry.fetchedAt() != null ? entry.fetchedAt() : now;
-                            entity.updatedAt = now;
-                            return session.merge(entity).replaceWithVoid();
-                        }));
+        OffsetDateTime now = OffsetDateTime.now();
+        StringBuilder sql = new StringBuilder(
+                "insert into fx_rate_history "
+                        + "(base_currency, quote_currency, rate_date, rate, provider, fetched_at, updated_at) "
+                        + "values ");
+        for (int i = 0; i < entries.size(); i++) {
+            if (i > 0) {
+                sql.append(", ");
             }
-            return chain;
-        });
+            sql.append("((:base").append(i).append(")::currency_type, (:quote").append(i).append(")::currency_type")
+                    .append(", :date").append(i).append(", :rate").append(i).append(", :provider").append(i)
+                    .append(", :fetchedAt").append(i).append(", :updatedAt").append(i).append(")");
+        }
+        sql.append(" on conflict (base_currency, quote_currency, rate_date) do update set "
+                + "rate = excluded.rate, "
+                + "provider = excluded.provider, "
+                + "fetched_at = excluded.fetched_at, "
+                + "updated_at = excluded.updated_at");
+
+        return Panache.getSession().flatMap(session -> {
+            var query = session.createNativeQuery(sql.toString());
+            for (int i = 0; i < entries.size(); i++) {
+                FxRateEntry entry = entries.get(i);
+                query.setParameter("base" + i, entry.baseCurrency().name());
+                query.setParameter("quote" + i, entry.quoteCurrency().name());
+                query.setParameter("date" + i, entry.rateDate());
+                query.setParameter("rate" + i, entry.rate());
+                query.setParameter("provider" + i, "twelvedata");
+                query.setParameter("fetchedAt" + i, entry.fetchedAt() != null ? entry.fetchedAt() : now);
+                query.setParameter("updatedAt" + i, now);
+            }
+            return query.executeUpdate();
+        }).replaceWithVoid();
     }
 
     @Override

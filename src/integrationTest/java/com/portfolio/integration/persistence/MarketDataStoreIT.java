@@ -82,6 +82,36 @@ class MarketDataStoreIT {
     @Test
     @RunOnVertxContext
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/market-data-seed.sql")
+    void givenMixOfNewAndExistingRows_whenUpsertPricesBatched_thenInsertsAndUpdatesInOneCall(UniAsserter asserter) {
+        OffsetDateTime now = OffsetDateTime.parse("2024-03-01T12:00:00Z");
+        List<PriceHistoryEntry> entries = List.of(
+                // AAPL/2024-01-01 already exists in the seed (close=100.000000) -> update path.
+                new PriceHistoryEntry(
+                        "AAPL", LocalDate.of(2024, 1, 1), new BigDecimal("999.000000"), null, Currency.USD, now),
+                // Two brand-new rows -> insert path, in the same batched call.
+                new PriceHistoryEntry(
+                        "GOOG", LocalDate.of(2024, 3, 1), new BigDecimal("150.000000"),
+                        new BigDecimal("150.000000"), Currency.USD, now),
+                new PriceHistoryEntry(
+                        "GOOG", LocalDate.of(2024, 3, 2), new BigDecimal("151.000000"),
+                        new BigDecimal("151.000000"), Currency.USD, now));
+
+        asserter.execute(() -> store.upsertPrices(entries));
+        asserter.assertThat(
+                () -> store.findPrices("AAPL", LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)),
+                prices -> assertEquals(0, new BigDecimal("999.000000").compareTo(prices.getFirst().closePrice())));
+        asserter.assertThat(
+                () -> store.findPrices("GOOG", LocalDate.of(2024, 3, 1), LocalDate.of(2024, 3, 2)),
+                prices -> {
+                    assertEquals(2, prices.size());
+                    assertEquals(0, new BigDecimal("150.000000").compareTo(prices.get(0).closePrice()));
+                    assertEquals(0, new BigDecimal("151.000000").compareTo(prices.get(1).closePrice()));
+                });
+    }
+
+    @Test
+    @RunOnVertxContext
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/market-data-seed.sql")
     void givenSeededSpotQuote_whenFindAndUpsert_thenReadsAndUpdates(UniAsserter asserter) {
         asserter.assertThat(
                 () -> store.findSpotQuote(SpotQuoteKind.PRICE, "AAPL"),
