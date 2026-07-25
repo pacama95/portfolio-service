@@ -130,43 +130,6 @@ CREATE TRIGGER update_spot_quotes_updated_at
     BEFORE UPDATE ON spot_quotes
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TABLE exchanges (
-    code VARCHAR(20) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    country VARCHAR(100),
-    currency VARCHAR(10) NOT NULL,
-    price_currency VARCHAR(10) NOT NULL,
-    price_multiplier DECIMAL(10, 6) NOT NULL DEFAULT 1.0,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-INSERT INTO exchanges (code, name, country, currency, price_currency, price_multiplier) VALUES
-  ('XLON',   'London Stock Exchange',           'GB', 'GBP', 'GBp', 0.01),
-  ('LSE',    'London Stock Exchange',           'GB', 'GBP', 'GBp', 0.01),
-  ('NASDAQ', 'NASDAQ',                          'US', 'USD', 'USD', 1.0),
-  ('NYSE',   'New York Stock Exchange',         'US', 'USD', 'USD', 1.0),
-  ('XNYS',   'New York Stock Exchange (MIC)',   'US', 'USD', 'USD', 1.0),
-  ('XNAS',   'NASDAQ Stock Market (MIC)',       'US', 'USD', 'USD', 1.0),
-  ('ARCA',   'NYSE Arca',                       'US', 'USD', 'USD', 1.0),
-  ('AMEX',   'NYSE American',                   'US', 'USD', 'USD', 1.0),
-  ('XETRA',  'Deutsche Boerse Xetra',           'DE', 'EUR', 'EUR', 1.0),
-  ('XFRA',   'Frankfurt Stock Exchange',        'DE', 'EUR', 'EUR', 1.0),
-  ('XPAR',   'Euronext Paris',                  'FR', 'EUR', 'EUR', 1.0),
-  ('XAMS',   'Euronext Amsterdam',              'NL', 'EUR', 'EUR', 1.0),
-  ('XBRU',   'Euronext Brussels',               'BE', 'EUR', 'EUR', 1.0),
-  ('XMIL',   'Borsa Italiana (Milan)',          'IT', 'EUR', 'EUR', 1.0),
-  ('XSWX',   'SIX Swiss Exchange',              'CH', 'CHF', 'CHF', 1.0),
-  ('BME',    'Bolsas y Mercados Españoles',     'ES', 'EUR', 'EUR', 1.0),
-  ('XMAD',   'Bolsa de Madrid',                 'ES', 'EUR', 'EUR', 1.0),
-  ('MC',     'Mercado Continuo (Spain)',        'ES', 'EUR', 'EUR', 1.0),
-  ('TSX',    'Toronto Stock Exchange',          'CA', 'CAD', 'CAD', 1.0),
-  ('XTSX',   'TSX Venture Exchange',            'CA', 'CAD', 'CAD', 1.0),
-  ('XASX',   'Australian Securities Exchange',  'AU', 'AUD', 'AUD', 1.0),
-  ('XHKG',   'Hong Kong Stock Exchange',        'HK', 'HKD', 'HKD', 1.0),
-  ('XTKS',   'Tokyo Stock Exchange',            'JP', 'JPY', 'JPY', 1.0),
-  ('XSTO',   'Nasdaq Stockholm',                'SE', 'SEK', 'SEK', 1.0),
-  ('XOSL',   'Oslo Børs',                       'NO', 'NOK', 'NOK', 1.0);
-
 CREATE TABLE price_ingestion_runs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id VARCHAR(128),
