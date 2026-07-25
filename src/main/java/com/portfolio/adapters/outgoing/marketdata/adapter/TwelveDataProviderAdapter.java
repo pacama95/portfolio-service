@@ -82,7 +82,7 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
     @Override
     public Uni<List<PriceHistoryEntry>> fetchPriceHistory(String symbol, LocalDate from, LocalDate to) {
         LOG.infof("Twelve Data fetchPriceHistory symbol=%s from=%s to=%s", symbol, from, to);
-        return throttled(symbol, () -> client.timeSeries(symbol, "1day", from.toString(), to.toString(), apiKey)
+        return throttled(symbol, () -> client.timeSeries(symbol, "1day", from.toString(), endDateParam(to), apiKey)
                 .map(response -> {
                     failIfProviderError(response, symbol);
                     List<PriceHistoryEntry> entries = parsePriceSeries(symbol, response);
@@ -98,7 +98,7 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
     public Uni<List<FxRateEntry>> fetchFxHistory(Currency base, Currency quote, LocalDate from, LocalDate to) {
         String symbol = base.name() + "/" + quote.name();
         LOG.infof("Twelve Data fetchFxHistory symbol=%s from=%s to=%s", symbol, from, to);
-        return throttled(symbol, () -> client.timeSeries(symbol, "1day", from.toString(), to.toString(), apiKey)
+        return throttled(symbol, () -> client.timeSeries(symbol, "1day", from.toString(), endDateParam(to), apiKey)
                 .map(response -> {
                     failIfProviderError(response, symbol);
                     List<FxRateEntry> entries = parseFxSeries(base, quote, response);
@@ -108,6 +108,17 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
                     }
                     return entries;
                 }));
+    }
+
+    /**
+     * Twelve Data's {@code end_date} is exclusive for the {@code 1day} interval — it is read as an
+     * instant at midnight, so a bar stamped with that same date falls outside the window. Every
+     * caller here passes an inclusive {@code to}, so shift it forward a day to keep that bar.
+     * Without this the newest day of any requested range is silently never returned, which leaves
+     * a permanent hole once {@code MarketDataService} records the range as covered.
+     */
+    private static String endDateParam(LocalDate to) {
+        return to.plusDays(1).toString();
     }
 
     /**

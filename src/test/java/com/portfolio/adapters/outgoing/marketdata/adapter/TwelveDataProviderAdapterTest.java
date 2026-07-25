@@ -25,6 +25,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TwelveDataProviderAdapterTest {
@@ -169,6 +170,36 @@ class TwelveDataProviderAdapterTest {
                 .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
     }
 
+    /**
+     * Twelve Data's end_date is exclusive for the 1day interval, so the adapter must request the
+     * day after the caller's inclusive {@code to}. Getting this wrong drops the newest bar of every
+     * range, and MarketDataService then records the range as covered and never retries it.
+     */
+    @Test
+    void givenInclusiveTo_whenFetchPriceHistory_thenRequestsDayAfterAsEndDate() throws Exception {
+        LocalDate from = LocalDate.of(2026, 7, 22);
+        LocalDate to = LocalDate.of(2026, 7, 24);
+        when(client.timeSeries("AAPL", "1day", "2026-07-22", "2026-07-25", API_KEY))
+                .thenReturn(Uni.createFrom().item(series("""
+                        {
+                          "meta": {"currency": "USD", "symbol": "AAPL"},
+                          "values": [
+                            {"datetime": "2026-07-24", "close": "333.019989", "volume": "1000"}
+                          ],
+                          "status": "ok"
+                        }
+                        """)));
+
+        List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertEquals(1, entries.size());
+        assertEquals(to, entries.getFirst().priceDate());
+        verify(client).timeSeries("AAPL", "1day", "2026-07-22", "2026-07-25", API_KEY);
+    }
+
     @Test
     void givenTimeSeries_whenFetchPriceHistory_thenParsesEntries() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
@@ -183,7 +214,7 @@ class TwelveDataProviderAdapterTest {
                   "status": "ok"
                 }
                 """);
-        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("AAPL", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
@@ -224,7 +255,7 @@ class TwelveDataProviderAdapterTest {
     void givenErrorStatusResponse_whenFetchPriceHistory_thenThrows() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("AAPL", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(
                         series("{\"status\":\"error\",\"message\":\"bad symbol\"}")));
 
@@ -238,7 +269,7 @@ class TwelveDataProviderAdapterTest {
     void givenRateLimitErrorCode_whenFetchPriceHistory_thenThrowsRateLimited() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("AAPL", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(series(
                         "{\"code\":429,\"status\":\"error\",\"message\":\"You have run out of API credits\"}")));
 
@@ -252,7 +283,7 @@ class TwelveDataProviderAdapterTest {
     void givenErrorStatusResponse_whenFetchFxHistory_thenThrows() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        when(client.timeSeries("EUR/USD", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("EUR/USD", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(
                         series("{\"status\":\"error\",\"message\":\"bad symbol\"}")));
 
@@ -266,7 +297,7 @@ class TwelveDataProviderAdapterTest {
     void givenMissingValuesNode_whenFetchPriceHistory_thenReturnsEmptyList() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("AAPL", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(series("{}")));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
@@ -286,7 +317,7 @@ class TwelveDataProviderAdapterTest {
                   "values": [{"datetime": "2024-01-01", "close": "50"}]
                 }
                 """);
-        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("AAPL", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
@@ -301,7 +332,7 @@ class TwelveDataProviderAdapterTest {
     void givenMissingValuesNode_whenFetchFxHistory_thenReturnsEmptyList() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        when(client.timeSeries("EUR/USD", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("EUR/USD", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(series("{}")));
 
         List<FxRateEntry> entries = adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
@@ -316,7 +347,7 @@ class TwelveDataProviderAdapterTest {
     void givenEmptyValues_whenFetchPriceHistory_thenReturnsEmptyList() throws Exception {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 1);
-        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("AAPL", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(series("{\"values\":[]}")));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("AAPL", from, to)
@@ -337,7 +368,7 @@ class TwelveDataProviderAdapterTest {
                   "values": [{"datetime": "2024-01-01", "close": "50"}]
                 }
                 """);
-        when(client.timeSeries("AAPL", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("AAPL", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(response));
 
         adapter.fetchPriceHistory("AAPL", from, to)
@@ -356,7 +387,7 @@ class TwelveDataProviderAdapterTest {
                   "values": [{"datetime": "2024-01-01", "close": "12345"}]
                 }
                 """);
-        when(client.timeSeries("LLOY", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("LLOY", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("LLOY", from, to)
@@ -378,7 +409,7 @@ class TwelveDataProviderAdapterTest {
                   "values": [{"datetime": "2024-01-01", "close": "500"}]
                 }
                 """);
-        when(client.timeSeries("LLOY", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("LLOY", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("LLOY", from, to)
@@ -400,7 +431,7 @@ class TwelveDataProviderAdapterTest {
                   "values": [{"datetime": "2024-01-01", "close": "5.00"}]
                 }
                 """);
-        when(client.timeSeries("BP", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("BP", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(response));
 
         List<PriceHistoryEntry> entries = adapter.fetchPriceHistory("BP", from, to)
@@ -424,7 +455,7 @@ class TwelveDataProviderAdapterTest {
                   ]
                 }
                 """);
-        when(client.timeSeries("EUR/USD", "1day", from.toString(), to.toString(), API_KEY))
+        when(client.timeSeries("EUR/USD", "1day", from.toString(), to.plusDays(1).toString(), API_KEY))
                 .thenReturn(Uni.createFrom().item(response));
 
         List<FxRateEntry> entries = adapter.fetchFxHistory(Currency.EUR, Currency.USD, from, to)
