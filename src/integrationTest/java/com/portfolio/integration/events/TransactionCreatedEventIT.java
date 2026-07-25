@@ -1,5 +1,7 @@
 package com.portfolio.integration.events;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.portfolio.integration.IntegrationTestProfile;
 import io.quarkus.redis.datasource.RedisDataSource;
 import io.quarkus.redis.datasource.stream.StreamCommands;
@@ -12,6 +14,7 @@ import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -29,6 +32,9 @@ class TransactionCreatedEventIT {
 
     @Inject
     RedisDataSource redisDataSource;
+
+    @Inject
+    ObjectMapper objectMapper;
 
     private StreamCommands<String, String, String> streams;
 
@@ -63,14 +69,16 @@ class TransactionCreatedEventIT {
         List<StreamMessage<String, String, String>> entries = streams.xrange(STREAM, StreamRange.of("-", "+"));
         assertEquals(1, entries.size());
 
-        Map<String, String> fields = entries.getFirst().payload();
-        assertEquals("AAPL", fields.get("ticker"));
-        assertEquals("NASDAQ", fields.get("exchange"));
-        assertEquals("USD", fields.get("currency"));
-        assertEquals("10", fields.get("quantity"));
-        assertEquals("100", fields.get("price"));
-        assertEquals("transaction.created", fields.get("eventType"));
-        assertEquals("1", fields.get("version"));
+        JsonNode envelope = envelopeOf(entries.getFirst());
+        assertEquals("transaction.created", envelope.get("eventType").asText());
+        assertEquals(1, envelope.get("version").asInt());
+
+        JsonNode payload = envelope.get("payload");
+        assertEquals("AAPL", payload.get("ticker").asText());
+        assertEquals("NASDAQ", payload.get("exchange").asText());
+        assertEquals("USD", payload.get("currency").asText());
+        assertEquals(0, new BigDecimal("10").compareTo(payload.get("quantity").decimalValue()));
+        assertEquals(0, new BigDecimal("100").compareTo(payload.get("price").decimalValue()));
     }
 
     @Test
@@ -96,7 +104,21 @@ class TransactionCreatedEventIT {
 
         List<StreamMessage<String, String, String>> entries = streams.xrange(STREAM, StreamRange.of("-", "+"));
         assertEquals(1, entries.size());
-        assertFalse(entries.getFirst().payload().containsKey("exchange"));
+        assertFalse(envelopeOf(entries.getFirst()).get("payload").has("exchange"));
+    }
+
+    /**
+     * Entries carry one "payload" stream field holding the JSON envelope — the shape consumers
+     * deserialize. Asserting through it keeps this test honest about the published contract.
+     */
+    private JsonNode envelopeOf(StreamMessage<String, String, String> entry) {
+        Map<String, String> fields = entry.payload();
+        assertTrue(fields.containsKey("payload"), "entry must carry a 'payload' field");
+        try {
+            return objectMapper.readTree(fields.get("payload"));
+        } catch (Exception exception) {
+            throw new AssertionError("payload field is not valid JSON: " + fields.get("payload"), exception);
+        }
     }
 
     @Test

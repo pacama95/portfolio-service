@@ -1,5 +1,9 @@
 package com.portfolio.adapters.outgoing.events;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.portfolio.adapters.outgoing.events.message.EventMessage;
+import com.portfolio.adapters.outgoing.events.message.TransactionCreatedData;
 import com.portfolio.core.model.Transaction;
 import com.portfolio.core.model.event.TransactionCreatedEvent;
 import com.portfolio.core.ports.outgoing.TransactionEventPublisher;
@@ -10,70 +14,92 @@ import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
-import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Map;
 
+/**
+ * Publishes transaction events as a single {@code payload} stream field holding the JSON
+ * {@link EventMessage} envelope. Consumers deserialize that one field, so the entry must not be
+ * spread across flat stream fields — doing so makes every message fail their envelope parse and
+ * get acked away without ever reaching a handler.
+ */
 @ApplicationScoped
 public class RedisTransactionEventPublisher implements TransactionEventPublisher {
 
+    private static final String PAYLOAD_FIELD = "payload";
+
     private final ReactiveStreamCommands<String, String, String> streams;
+    private final ObjectMapper objectMapper;
     private final String streamName;
     private final long maxLength;
 
     public RedisTransactionEventPublisher(
             ReactiveRedisDataSource redis,
+            ObjectMapper objectMapper,
             @ConfigProperty(name = "application.events.transaction-created.stream", defaultValue = "transaction:created")
                     String streamName,
             @ConfigProperty(name = "application.events.transaction-created.max-length", defaultValue = "10000")
                     long maxLength) {
         this.streams = redis.stream(String.class);
+        this.objectMapper = objectMapper;
         this.streamName = streamName;
         this.maxLength = maxLength;
     }
 
     @Override
     public Uni<Void> publishTransactionCreated(TransactionCreatedEvent event) {
-        return streams.xadd(streamName, new XAddArgs().maxlen(maxLength).nearlyExactTrimming(), toFields(event))
+        return serialize(event)
+                .flatMap(json -> streams.xadd(
+                        streamName,
+                        new XAddArgs().maxlen(maxLength).nearlyExactTrimming(),
+                        Map.of(PAYLOAD_FIELD, json)))
                 .replaceWithVoid();
     }
 
-    private static Map<String, String> toFields(TransactionCreatedEvent event) {
-        Transaction transaction = event.transaction();
-        Map<String, String> fields = new LinkedHashMap<>();
-
-        fields.put("eventId", event.eventId().toString());
-        fields.put("eventType", TransactionCreatedEvent.EVENT_TYPE);
-        fields.put("version", String.valueOf(TransactionCreatedEvent.SCHEMA_VERSION));
-        fields.put("occurredAt", event.occurredAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
-
-        fields.put("transactionId", transaction.id().toString());
-        fields.put("userId", transaction.userId().value());
-        fields.put("ticker", transaction.ticker());
-        fields.put("transactionType", transaction.transactionType().name());
-        fields.put("assetType", transaction.assetType().name());
-        fields.put("quantity", transaction.quantity().toPlainString());
-        fields.put("price", transaction.price().toPlainString());
-        fields.put("fees", transaction.fees().toPlainString());
-        fields.put("currency", transaction.currency().name());
-        fields.put("transactionDate", transaction.transactionDate().format(DateTimeFormatter.ISO_LOCAL_DATE));
-        fields.put("fractional", String.valueOf(transaction.fractional()));
-        fields.put("fractionalMultiplier", transaction.fractionalMultiplier().toPlainString());
-        fields.put("createdAt", transaction.createdAt().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
-
-        putIfPresent(fields, "notes", transaction.notes());
-        putIfPresent(fields, "commissionCurrency", transaction.commissionCurrency() != null
-                ? transaction.commissionCurrency().name() : null);
-        putIfPresent(fields, "exchange", transaction.exchange());
-        putIfPresent(fields, "country", transaction.country());
-        putIfPresent(fields, "companyName", transaction.companyName());
-
-        return fields;
+    private Uni<String> serialize(TransactionCreatedEvent event) {
+        return Uni.createFrom().item(() -> {
+            try {
+                return objectMapper.writeValueAsString(toMessage(event));
+            } catch (JsonProcessingException exception) {
+                throw new IllegalStateException("Failed to serialize transaction created event", exception);
+            }
+        });
     }
 
-    private static void putIfPresent(Map<String, String> fields, String key, String value) {
-        if (value != null) {
-            fields.put(key, value);
-        }
+    private static EventMessage<TransactionCreatedData> toMessage(TransactionCreatedEvent event) {
+        return new EventMessage<>(
+                event.eventId(),
+                toInstant(event.occurredAt()),
+                Instant.now(),
+                TransactionCreatedEvent.EVENT_TYPE,
+                TransactionCreatedEvent.SCHEMA_VERSION,
+                toData(event.transaction()));
+    }
+
+    private static TransactionCreatedData toData(Transaction transaction) {
+        return new TransactionCreatedData(
+                transaction.id(),
+                transaction.userId().value(),
+                transaction.ticker(),
+                transaction.transactionType(),
+                transaction.assetType(),
+                transaction.quantity(),
+                transaction.price(),
+                transaction.fees(),
+                transaction.currency(),
+                transaction.transactionDate(),
+                transaction.notes(),
+                transaction.fractional(),
+                transaction.fractionalMultiplier(),
+                transaction.commissionCurrency(),
+                transaction.exchange(),
+                transaction.country(),
+                transaction.companyName(),
+                toInstant(transaction.createdAt()));
+    }
+
+    private static Instant toInstant(OffsetDateTime timestamp) {
+        return timestamp != null ? timestamp.toInstant() : null;
     }
 }
