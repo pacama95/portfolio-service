@@ -19,6 +19,7 @@ import org.jboss.logging.Logger;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -41,22 +42,28 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
     private final TransactionRepository transactionRepository;
     private final MarketDataPort marketDataPort;
     private final Currency baseCurrency;
+    private final long maxRangeDays;
 
     public GetPortfolioValuationHistoryService(
             TransactionRepository transactionRepository,
             MarketDataPort marketDataPort,
             @ConfigProperty(name = "application.portfolio.base-currency", defaultValue = "USD")
-            String baseCurrency) {
+            String baseCurrency,
+            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "3650")
+            long maxRangeDays) {
         this.transactionRepository = transactionRepository;
         this.marketDataPort = marketDataPort;
         this.baseCurrency = Currency.valueOf(baseCurrency);
+        this.maxRangeDays = maxRangeDays;
     }
 
     @Override
     public Uni<Result> execute(Query query) {
         LOG.infof("Getting portfolio valuation history from=%s to=%s", query.from(), query.to());
-        if (query.from() == null || query.to() == null || query.from().isAfter(query.to())) {
-            return Uni.createFrom().item(new Result.InvalidRequest("from/to dates are required and from <= to"));
+        if (query.from() == null || query.to() == null || query.from().isAfter(query.to())
+                || ChronoUnit.DAYS.between(query.from(), query.to()) > maxRangeDays) {
+            return Uni.createFrom().item(new Result.InvalidRequest(
+                    "from/to dates are required, from <= to, and range must not exceed " + maxRangeDays + " days"));
         }
         return transactionRepository.findAll(query.userId())
                 .flatMap(transactions -> buildValuations(transactions, query.from(), query.to()))
@@ -96,12 +103,19 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
                         .map(fxMap -> buildDailyValuations(byTicker, tickers, priceMap, fxMap, from, to)));
     }
 
+    /**
+     * Prices are fetched from {@code PRICE_STALENESS_DAYS} before {@code from} (rather than
+     * exactly {@code from}) so the first days of the requested range still have a usable floor
+     * price when {@code from} lands on a weekend/holiday gap in the price series — mirrors the
+     * same buffer {@link #loadFxRates} already applies for FX.
+     */
     private Uni<Map<String, NavigableMap<LocalDate, BigDecimal>>> loadPrices(
             List<String> tickers, LocalDate from, LocalDate to) {
         Uni<Map<String, NavigableMap<LocalDate, BigDecimal>>> pricesUni =
                 Uni.createFrom().item(new HashMap<>());
+        LocalDate priceFrom = from.minusDays(PRICE_STALENESS_DAYS);
         for (String ticker : tickers) {
-            pricesUni = pricesUni.flatMap(map -> marketDataPort.getPriceHistory(ticker, from, to)
+            pricesUni = pricesUni.flatMap(map -> marketDataPort.getPriceHistory(ticker, priceFrom, to)
                     .map(entries -> {
                         NavigableMap<LocalDate, BigDecimal> series = new TreeMap<>();
                         for (PriceHistoryEntry entry : entries) {
@@ -159,21 +173,28 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
                 anyPosition = true;
                 DailyPositionSnapshot snap = floor.getValue();
 
-                Optional<BigDecimal> price = TimeSeriesLookup.floorWithinStaleness(
-                        priceMap.get(ticker), date, PRICE_STALENESS_DAYS);
+                // Cost basis is a pure ledger number and only needs an FX rate to express in base
+                // currency — it must not depend on price availability, so it's accumulated as soon
+                // as the FX rate is known, before the (possibly-missing) price is even looked up.
                 Optional<BigDecimal> fxRate = fxRateFor(snap.currency(), fxMap, date);
-                if (price.isEmpty() || fxRate.isEmpty()) {
+                if (fxRate.isEmpty()) {
                     complete = false;
                     continue;
                 }
-
-                BigDecimal mv = snap.sharesOwned().multiply(price.get()).multiply(fxRate.get())
-                        .setScale(6, RoundingMode.HALF_UP);
-                marketValue = marketValue.add(mv);
                 BigDecimal investedNative = snap.totalInvestedAmount() != null
                         ? snap.totalInvestedAmount()
                         : BigDecimal.ZERO;
                 cost = cost.add(investedNative.multiply(fxRate.get()).setScale(6, RoundingMode.HALF_UP));
+
+                Optional<BigDecimal> price = TimeSeriesLookup.floorWithinStaleness(
+                        priceMap.get(ticker), date, PRICE_STALENESS_DAYS);
+                if (price.isEmpty()) {
+                    complete = false;
+                    continue;
+                }
+                BigDecimal mv = snap.sharesOwned().multiply(price.get()).multiply(fxRate.get())
+                        .setScale(6, RoundingMode.HALF_UP);
+                marketValue = marketValue.add(mv);
             }
             if (anyPosition) {
                 valuations.add(new DailyValuation(date, baseCurrency, marketValue, cost, complete));

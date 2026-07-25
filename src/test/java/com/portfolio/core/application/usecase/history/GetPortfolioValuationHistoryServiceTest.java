@@ -39,7 +39,7 @@ class GetPortfolioValuationHistoryServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GetPortfolioValuationHistoryService(transactionRepository, marketDataPort, "USD");
+        service = new GetPortfolioValuationHistoryService(transactionRepository, marketDataPort, "USD", 3650);
     }
 
     @Test
@@ -54,11 +54,26 @@ class GetPortfolioValuationHistoryServiceTest {
     }
 
     @Test
+    void givenRangeExceedsMax_whenExecute_thenInvalidRequest() {
+        GetPortfolioValuationHistoryService strict =
+                new GetPortfolioValuationHistoryService(transactionRepository, marketDataPort, "USD", 5);
+
+        GetPortfolioValuationHistoryUseCase.Result result = strict.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(
+                        USER, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 20)))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.InvalidRequest.class, result);
+    }
+
+    @Test
     void givenSameFromAndTo_whenExecute_thenReturnsSingleDayValuation() {
         LocalDate date = LocalDate.of(2024, 1, 10);
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
                 tx("AAPL", TransactionType.BUY, "10", "100", LocalDate.of(2024, 1, 1)))));
-        when(marketDataPort.getPriceHistory("AAPL", date, date)).thenReturn(Uni.createFrom().item(List.of(
+        when(marketDataPort.getPriceHistory("AAPL", date.minusDays(5), date)).thenReturn(Uni.createFrom().item(List.of(
                 price("AAPL", date, "110"))));
 
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
@@ -116,7 +131,7 @@ class GetPortfolioValuationHistoryServiceTest {
         LocalDate date = LocalDate.of(2024, 1, 10);
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
                 tx("AAPL", TransactionType.BUY, "10", "100", LocalDate.of(2024, 1, 1)))));
-        when(marketDataPort.getPriceHistory("AAPL", date, date)).thenReturn(Uni.createFrom().item(List.of(
+        when(marketDataPort.getPriceHistory("AAPL", date.minusDays(5), date)).thenReturn(Uni.createFrom().item(List.of(
                 price("AAPL", date, "110"))));
 
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
@@ -142,7 +157,7 @@ class GetPortfolioValuationHistoryServiceTest {
         LocalDate stalePriceDate = LocalDate.of(2024, 1, 1);
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
                 tx("AAPL", TransactionType.BUY, "10", "100", LocalDate.of(2024, 1, 1)))));
-        when(marketDataPort.getPriceHistory("AAPL", valuationDate, valuationDate))
+        when(marketDataPort.getPriceHistory("AAPL", valuationDate.minusDays(5), valuationDate))
                 .thenReturn(Uni.createFrom().item(List.of(price("AAPL", stalePriceDate, "110"))));
 
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
@@ -156,6 +171,9 @@ class GetPortfolioValuationHistoryServiceTest {
         DailyValuation valuation = success.valuations().getFirst();
         assertFalse(valuation.complete());
         assertEquals(0, BigDecimal.ZERO.compareTo(valuation.totalMarketValue()));
+        // S4: cost basis is a pure ledger number and must not be dropped just because the price
+        // lookup failed — only market value should be excluded.
+        assertEquals(0, new BigDecimal("1000").compareTo(valuation.totalCost()));
     }
 
     @Test
@@ -163,7 +181,7 @@ class GetPortfolioValuationHistoryServiceTest {
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
                 tx("AAPL", TransactionType.BUY, "10", "100", LocalDate.of(2024, 1, 1)),
                 tx("AAPL", TransactionType.SELL, "10", "110", LocalDate.of(2024, 1, 2)))));
-        when(marketDataPort.getPriceHistory("AAPL", LocalDate.of(2024, 1, 3), LocalDate.of(2024, 1, 5)))
+        when(marketDataPort.getPriceHistory("AAPL", LocalDate.of(2023, 12, 29), LocalDate.of(2024, 1, 5)))
                 .thenReturn(Uni.createFrom().item(List.of(
                         price("AAPL", LocalDate.of(2024, 1, 3), "120"),
                         price("AAPL", LocalDate.of(2024, 1, 4), "121"),
@@ -187,7 +205,7 @@ class GetPortfolioValuationHistoryServiceTest {
         LocalDate date = LocalDate.of(2024, 1, 10);
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
                 tx("ASML", TransactionType.BUY, "10", "100", purchaseDate, Currency.EUR))));
-        when(marketDataPort.getPriceHistory("ASML", date, date)).thenReturn(Uni.createFrom().item(List.of(
+        when(marketDataPort.getPriceHistory("ASML", date.minusDays(5), date)).thenReturn(Uni.createFrom().item(List.of(
                 new PriceHistoryEntry("ASML", date, new BigDecimal("110"), null, Currency.EUR, OffsetDateTime.now()))));
         when(marketDataPort.getFxHistory(Currency.EUR, Currency.USD, date.minusDays(7), date))
                 .thenReturn(Uni.createFrom().item(List.of(
@@ -211,12 +229,41 @@ class GetPortfolioValuationHistoryServiceTest {
     }
 
     @Test
+    void givenForeignCurrencyPositionStalePriceWithFxRate_whenExecute_thenCostStillIncluded() {
+        LocalDate purchaseDate = LocalDate.of(2024, 1, 1);
+        LocalDate date = LocalDate.of(2024, 1, 10);
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
+                tx("ASML", TransactionType.BUY, "10", "100", purchaseDate, Currency.EUR))));
+        // No price entries at all in the fetched range -> price lookup is empty (stale/missing).
+        when(marketDataPort.getPriceHistory("ASML", date.minusDays(5), date))
+                .thenReturn(Uni.createFrom().item(List.of()));
+        when(marketDataPort.getFxHistory(Currency.EUR, Currency.USD, date.minusDays(7), date))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new FxRateEntry(Currency.EUR, Currency.USD, date, new BigDecimal("1.10"), OffsetDateTime.now()))));
+
+        GetPortfolioValuationHistoryUseCase.Result result = service.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(USER, date, date))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetPortfolioValuationHistoryUseCase.Result.Success success =
+                assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
+        DailyValuation valuation = success.valuations().getFirst();
+        assertFalse(valuation.complete());
+        assertEquals(0, BigDecimal.ZERO.compareTo(valuation.totalMarketValue()));
+        // S4: FX rate is available, so cost basis (which only needs FX, not price) is still
+        // included even though the price is missing.
+        assertEquals(0, new BigDecimal("1100.000000").compareTo(valuation.totalCost()));
+    }
+
+    @Test
     void givenForeignCurrencyPositionWithoutFxRate_whenExecute_thenMarksIncomplete() {
         LocalDate purchaseDate = LocalDate.of(2024, 1, 1);
         LocalDate date = LocalDate.of(2024, 1, 10);
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
                 tx("ASML", TransactionType.BUY, "10", "100", purchaseDate, Currency.EUR))));
-        when(marketDataPort.getPriceHistory("ASML", date, date)).thenReturn(Uni.createFrom().item(List.of(
+        when(marketDataPort.getPriceHistory("ASML", date.minusDays(5), date)).thenReturn(Uni.createFrom().item(List.of(
                 new PriceHistoryEntry("ASML", date, new BigDecimal("110"), null, Currency.EUR, OffsetDateTime.now()))));
         when(marketDataPort.getFxHistory(Currency.EUR, Currency.USD, date.minusDays(7), date))
                 .thenReturn(Uni.createFrom().item(List.of()));
