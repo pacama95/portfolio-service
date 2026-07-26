@@ -70,7 +70,7 @@ public class TransactionController {
         this.mapper = mapper;
         this.userContext = userContext;
     }
-
+// TODO: general for all controllers: our OpenAPI annotations are minimal, we need to enhance them. Extended them to cover each possible response and request body. Extend annotations on DTOs to carry validation, examples. We need a rich OpenAPI file to be generated.
     @POST
     @Operation(summary = "Create a transaction")
     @Parameter(name = UserIdentityFilter.USER_ID_HEADER, in = ParameterIn.HEADER, required = true)

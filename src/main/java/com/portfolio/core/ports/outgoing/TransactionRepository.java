@@ -46,8 +46,8 @@ public interface TransactionRepository {
     Uni<Long> countByTicker(UserId userId, String ticker);
 
     /**
-     * Acquires a transaction-scoped lock per (userId, ticker) pair — released automatically
-     * when the transaction ends — then hands the caller each ticker's current transactions
+     * Acquires a transaction-scoped lock per (userId, ticker) pair, released automatically
+     * when the transaction ends, then hands the caller each ticker's current transactions
      * (keyed by ticker) so it can validate a candidate change against a consistent view before
      * writing. Without this, a read-validate-write sequence spanning two separate reactive
      * sessions/transactions is a classic TOCTOU race: a concurrent write for the same ticker

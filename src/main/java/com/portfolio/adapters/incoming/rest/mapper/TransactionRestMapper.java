@@ -20,6 +20,7 @@ public interface TransactionRestMapper {
     @Mapping(target = "totalCost", expression = "java(transaction.totalCost())")
     TransactionResponse toResponse(Transaction transaction);
 
+    // TODO: we are using default to often, we should avoid it whenever is possible and map using mapstruct annotations, this way if we add data the work is minimal since the code is auto-generated and we just need to fix unit tests for mappers (that's also important we need unit tests for all mappers).
     default CreateTransactionUseCase.Command toCreateCommand(UserId userId, CreateTransactionRequest request) {
         return new CreateTransactionUseCase.Command(
                 userId,

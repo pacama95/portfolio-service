@@ -113,18 +113,13 @@ public class CreateTransactionService implements CreateTransactionUseCase {
                         : Uni.createFrom().voidItem());
     }
 
-    /**
-     * Fees are billed in {@code commissionCurrency}, which may differ from the transaction's own
-     * {@code currency} (e.g. a USD trade with a EUR-denominated broker fee). LedgerReplay adds
-     * fees raw assuming they're already in the transaction's currency, so they're normalized once
-     * here at write time rather than converted at every LedgerReplay read-side caller.
-     */
     private Uni<BigDecimal> convertFees(Currency commissionCurrency, Currency currency, BigDecimal fees) {
         if (commissionCurrency == null || commissionCurrency == currency || fees.compareTo(BigDecimal.ZERO) == 0) {
             return Uni.createFrom().item(fees);
         }
         return marketDataPort.getFxRate(commissionCurrency, currency)
                 .onFailure().recoverWithItem(failure -> {
+                    // TODO: this is wrong, we cannot assume the FX rate is one, what happen if the provider is down for some time or this endpoint fails? We need to fully fail in this case, FX is core.
                     LOG.warnf(failure, "FX rate unavailable commissionCurrency=%s currency=%s; "
                             + "falling back to rate=1 for fee conversion", commissionCurrency, currency);
                     return BigDecimal.ONE;
