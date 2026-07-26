@@ -8,6 +8,7 @@ import com.portfolio.core.ports.outgoing.MarketDataProviderError;
 import com.portfolio.core.ports.outgoing.MarketDataProviderPort;
 import com.portfolio.core.ports.outgoing.RoutedMarketDataProviderPort;
 import io.smallrye.mutiny.Uni;
+import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.Config;
@@ -27,6 +28,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 @ApplicationScoped
+@Startup
 public class OrderedMarketDataProviderRouter implements MarketDataProviderPort, RoutedMarketDataProviderPort {
 
     private static final Logger LOG = Logger.getLogger(OrderedMarketDataProviderRouter.class);

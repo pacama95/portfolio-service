@@ -1,6 +1,6 @@
 # EODHD Market-Data Provider: Design, Contracts, and Operations
 
-> Status: proposed, not yet implemented<br>
+> Status: implemented on `codex/eodhd-provider`; final verification recorded in the branch history<br>
 > Last reviewed against the official EODHD documentation: 2026-07-26<br>
 > Intended audience: implementers, reviewers, and operators of `portfolio-service`
 
@@ -478,7 +478,7 @@ Never log:
 Existing correlation IDs remain the request-level diagnostic key. Provider-specific failures
 returned to REST clients are sanitized.
 
-## 15. Implementation sequence
+## 15. Implementation sequence (completed)
 
 1. Add provider-neutral listing metadata model/port and its distinct-query persistence adapter.
 2. Add migration, entities, and repository operations for the exchange catalog, symbol mappings,
