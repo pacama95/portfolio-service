@@ -19,6 +19,7 @@ import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.inject.Inject;
+import org.hibernate.reactive.mutiny.Mutiny;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -39,6 +40,9 @@ class MarketDataStoreIT {
 
     @Inject
     MarketDataStorePort store;
+
+    @Inject
+    Mutiny.SessionFactory sessionFactory;
 
     @SuppressWarnings("unused")
     private final ConnectionHolder connectionHolder =
@@ -186,6 +190,28 @@ class MarketDataStoreIT {
     @Test
     @RunOnVertxContext
     @DataSet(cleanBefore = true)
+    void givenProviderWrites_whenPersisted_thenStoresActualProviderForEveryDataKind(UniAsserter asserter) {
+        OffsetDateTime fetchedAt = OffsetDateTime.parse("2024-04-01T12:00:00Z");
+        PriceHistoryEntry price = new PriceHistoryEntry(
+                "AAPL", LocalDate.of(2024, 4, 1), new BigDecimal("170.00"),
+                new BigDecimal("170.00"), Currency.USD, fetchedAt);
+        FxRateEntry fx = new FxRateEntry(
+                Currency.EUR, Currency.USD, LocalDate.of(2024, 4, 1), new BigDecimal("1.08"), fetchedAt);
+        SpotQuote spot = new SpotQuote(
+                SpotQuoteKind.PRICE, "AAPL", new BigDecimal("170.00"), Currency.USD,
+                null, null, fetchedAt, QuoteSource.PROVIDER);
+
+        asserter.execute(() -> store.upsertPrices(List.of(price), "eodhd"));
+        asserter.execute(() -> store.upsertFxRates(List.of(fx), "eodhd"));
+        asserter.execute(() -> store.upsertSpotQuote(spot, "eodhd").replaceWithVoid());
+        asserter.assertThat(() -> storedProvider("price_history"), provider -> assertEquals("eodhd", provider));
+        asserter.assertThat(() -> storedProvider("fx_rate_history"), provider -> assertEquals("eodhd", provider));
+        asserter.assertThat(() -> storedProvider("spot_quotes"), provider -> assertEquals("eodhd", provider));
+    }
+
+    @Test
+    @RunOnVertxContext
+    @DataSet(cleanBefore = true)
     void givenNoCoverage_whenRecordCoverage_thenHasCoverageTrue(UniAsserter asserter) {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 2);
@@ -214,5 +240,11 @@ class MarketDataStoreIT {
         asserter.assertThat(
                 () -> store.hasCoverage("PRICE", "AAPL", from, to),
                 Assertions::assertTrue);
+    }
+
+    private io.smallrye.mutiny.Uni<String> storedProvider(String table) {
+        return sessionFactory.withSession(session -> session
+                .createNativeQuery("select provider from " + table, String.class)
+                .getSingleResult());
     }
 }

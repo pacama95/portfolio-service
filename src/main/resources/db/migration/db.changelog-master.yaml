@@ -45,3 +45,12 @@ databaseChangeLog:
       changes:
         - sql:
             sql: DROP TABLE IF EXISTS exchanges;
+  - changeSet:
+      id: 005-add-spot-quote-provider
+      author: portfolio-service
+      comment: >
+        Records which configured provider produced a spot price or FX quote. Manual quotes keep
+        this column null; their provenance remains represented by source=MANUAL.
+      changes:
+        - sql:
+            sql: ALTER TABLE spot_quotes ADD COLUMN IF NOT EXISTS provider VARCHAR(64)

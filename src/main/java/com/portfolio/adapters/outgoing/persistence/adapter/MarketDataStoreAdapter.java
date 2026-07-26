@@ -45,9 +45,16 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
     @Override
     @WithTransaction
     public Uni<Void> upsertPrices(List<PriceHistoryEntry> entries) {
+        return upsertPrices(entries, "twelvedata");
+    }
+
+    @Override
+    @WithTransaction
+    public Uni<Void> upsertPrices(List<PriceHistoryEntry> entries, String provider) {
         if (entries == null || entries.isEmpty()) {
             return Uni.createFrom().voidItem();
         }
+        requireProvider(provider);
         OffsetDateTime now = OffsetDateTime.now();
         StringBuilder sql = new StringBuilder(
                 "insert into price_history "
@@ -79,7 +86,7 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
                 query.setParameter("close" + i, entry.closePrice());
                 query.setParameter("adjClose" + i, entry.adjustedClosePrice());
                 query.setParameter("currency" + i, entry.currency().name());
-                query.setParameter("provider" + i, "twelvedata");
+                query.setParameter("provider" + i, provider);
                 query.setParameter("fetchedAt" + i, entry.fetchedAt() != null ? entry.fetchedAt() : now);
                 query.setParameter("updatedAt" + i, now);
             }
@@ -106,9 +113,16 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
     @Override
     @WithTransaction
     public Uni<Void> upsertFxRates(List<FxRateEntry> entries) {
+        return upsertFxRates(entries, "twelvedata");
+    }
+
+    @Override
+    @WithTransaction
+    public Uni<Void> upsertFxRates(List<FxRateEntry> entries, String provider) {
         if (entries == null || entries.isEmpty()) {
             return Uni.createFrom().voidItem();
         }
+        requireProvider(provider);
         OffsetDateTime now = OffsetDateTime.now();
         StringBuilder sql = new StringBuilder(
                 "insert into fx_rate_history "
@@ -136,7 +150,7 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
                 query.setParameter("quote" + i, entry.quoteCurrency().name());
                 query.setParameter("date" + i, entry.rateDate());
                 query.setParameter("rate" + i, entry.rate());
-                query.setParameter("provider" + i, "twelvedata");
+                query.setParameter("provider" + i, provider);
                 query.setParameter("fetchedAt" + i, entry.fetchedAt() != null ? entry.fetchedAt() : now);
                 query.setParameter("updatedAt" + i, now);
             }
@@ -160,6 +174,15 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
     @Override
     @WithTransaction
     public Uni<SpotQuote> upsertSpotQuote(SpotQuote quote) {
+        return upsertSpotQuote(quote, quote.source() == QuoteSource.MANUAL ? null : "twelvedata");
+    }
+
+    @Override
+    @WithTransaction
+    public Uni<SpotQuote> upsertSpotQuote(SpotQuote quote, String provider) {
+        if (quote.source() == QuoteSource.PROVIDER) {
+            requireProvider(provider);
+        }
         return Panache.getSession().flatMap(session ->
                 session.createQuery(
                                 "from SpotQuoteEntity s where s.kind = :kind and s.symbol = :symbol",
@@ -188,6 +211,7 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
                                     : TransactionEntity.CurrencyDb.valueOf(quote.quoteCurrency().name());
                             entity.asOf = quote.asOf();
                             entity.source = SpotQuoteEntity.QuoteSourceDb.valueOf(quote.source().name());
+                            entity.provider = quote.source() == QuoteSource.MANUAL ? null : provider;
                             entity.updatedAt = now;
                             return session.merge(entity).map(this::toSpotQuote);
                         }));
@@ -270,5 +294,11 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
                 entity.quoteCurrency == null ? null : Currency.valueOf(entity.quoteCurrency.name()),
                 entity.asOf,
                 QuoteSource.valueOf(entity.source.name()));
+    }
+
+    private void requireProvider(String provider) {
+        if (provider == null || provider.isBlank()) {
+            throw new IllegalArgumentException("provider must not be blank for provider market data");
+        }
     }
 }

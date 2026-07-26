@@ -7,10 +7,10 @@ INSERT INTO price_history (
      'TWELVE_DATA', '2024-01-02 12:00:00+00', '2024-01-02 12:00:00+00', '2024-01-02 12:00:00+00');
 
 INSERT INTO spot_quotes (
-    id, kind, symbol, value, currency, base_currency, quote_currency, as_of, source, created_at, updated_at
+    id, kind, symbol, value, currency, base_currency, quote_currency, as_of, source, provider, created_at, updated_at
 ) VALUES
     ('11111111-1111-1111-1111-111111111111', 'PRICE'::spot_quote_kind, 'AAPL', 190.50000000,
-     'USD'::currency_type, null, null, NOW(), 'PROVIDER'::quote_source,
+     'USD'::currency_type, null, null, NOW(), 'PROVIDER'::quote_source, 'twelvedata',
      NOW(), NOW());
 
 INSERT INTO fx_rate_history (

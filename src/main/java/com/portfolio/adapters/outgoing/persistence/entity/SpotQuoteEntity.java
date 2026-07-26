@@ -54,6 +54,9 @@ public class SpotQuoteEntity {
     @Column(nullable = false, columnDefinition = "quote_source")
     public QuoteSourceDb source;
 
+    @Column(length = 64)
+    public String provider;
+
     @Column(name = "created_at", nullable = false)
     public OffsetDateTime createdAt;
 
