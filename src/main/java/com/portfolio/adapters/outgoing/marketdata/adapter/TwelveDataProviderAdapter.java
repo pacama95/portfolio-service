@@ -13,6 +13,8 @@ import com.portfolio.core.ports.outgoing.MarketDataProviderPort;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
+import jakarta.ws.rs.ProcessingException;
+import jakarta.ws.rs.WebApplicationException;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
@@ -131,7 +133,30 @@ public class TwelveDataProviderAdapter implements MarketDataProviderPort {
                 .onFailure(ReactiveRateLimiter.RateLimitExceededException.class)
                 .transform(failure -> new MarketDataProviderError.RateLimited(
                         symbol, ((ReactiveRateLimiter.RateLimitExceededException) failure).retryAfter()))
-                .chain(() -> call.get());
+                .chain(() -> call.get())
+                .onFailure().transform(failure -> translateTransportFailure(failure, symbol));
+    }
+
+    private Throwable translateTransportFailure(Throwable failure, String symbol) {
+        if (failure instanceof MarketDataProviderError.ProviderException) {
+            return failure;
+        }
+        if (failure instanceof WebApplicationException webFailure && webFailure.getResponse() != null) {
+            int status = webFailure.getResponse().getStatus();
+            if (status == RATE_LIMIT_CODE) {
+                return new MarketDataProviderError.RateLimited(symbol, PROVIDER_RATE_LIMIT_RETRY_AFTER);
+            }
+            if (status == 400 || status == 401 || status == 403 || status == 404) {
+                return new MarketDataProviderError.ErrorResponse(symbol, "upstream HTTP " + status);
+            }
+            if (status >= 500) {
+                return new MarketDataProviderError.ProviderUnavailable(symbol);
+            }
+        }
+        if (failure instanceof ProcessingException) {
+            return new MarketDataProviderError.ProviderUnavailable(symbol);
+        }
+        return failure;
     }
 
     /**

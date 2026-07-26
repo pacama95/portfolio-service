@@ -16,6 +16,9 @@ import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import jakarta.ws.rs.ProcessingException;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -93,6 +96,39 @@ class TwelveDataProviderAdapterTest {
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitFailure()
                 .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
+    }
+
+    @Test
+    void givenHttpClientError_whenFetchSpotPrice_thenThrowsTypedErrorForFallback() {
+        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().failure(
+                new WebApplicationException(Response.status(401).build())));
+
+        adapter.fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
+    }
+
+    @Test
+    void givenTransportFailure_whenFetchSpotPrice_thenThrowsUnavailableForFallback() {
+        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().failure(
+                new ProcessingException("timeout")));
+
+        adapter.fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ProviderUnavailable.class);
+    }
+
+    @Test
+    void givenUnexpectedMappingFailure_whenFetchSpotPrice_thenDoesNotHideBugAsProviderFailure() throws Exception {
+        when(client.price("AAPL", API_KEY))
+                .thenReturn(Uni.createFrom().item(price("{\"price\":\"not-a-number\"}")));
+
+        adapter.fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(NumberFormatException.class);
     }
 
     @Test
