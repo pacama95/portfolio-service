@@ -11,12 +11,13 @@ import java.time.Duration;
 
 /**
  * One limiter instance per provider so each provider's budget is configured independently.
- * A future provider (e.g. EODHD) adds its own producer method and config keys here.
+ * Each provider has its own producer and configuration keys.
  */
 @ApplicationScoped
 public class MarketDataRateLimiters {
 
     public static final String TWELVE_DATA = "twelvedata-rate-limiter";
+    public static final String EODHD = "eodhd-rate-limiter";
 
     @Produces
     @Singleton
@@ -29,5 +30,18 @@ public class MarketDataRateLimiters {
                     defaultValue = "PT2M")
             Duration maxWait) {
         return new ReactiveRateLimiter("twelvedata", creditsPerMinute, maxWait);
+    }
+
+    @Produces
+    @Singleton
+    @Named(EODHD)
+    ReactiveRateLimiter eodhdRateLimiter(
+            @ConfigProperty(name = "application.market-data.eodhd.rate-limit.requests-per-minute",
+                    defaultValue = "1000")
+            int requestsPerMinute,
+            @ConfigProperty(name = "application.market-data.eodhd.rate-limit.max-wait",
+                    defaultValue = "PT2M")
+            Duration maxWait) {
+        return new ReactiveRateLimiter("eodhd", requestsPerMinute, maxWait);
     }
 }

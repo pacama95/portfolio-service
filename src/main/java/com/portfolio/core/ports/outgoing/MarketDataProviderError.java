@@ -33,6 +33,18 @@ public sealed interface MarketDataProviderError {
         }
     }
 
+    final class ProviderUnavailable extends ProviderException {
+        public ProviderUnavailable(String symbol) {
+            super("Market data provider unavailable for " + symbol);
+        }
+    }
+
+    final class SymbolResolution extends ProviderException {
+        public SymbolResolution(String symbol, String reason) {
+            super("Unable to resolve market data symbol '" + symbol + "': " + reason);
+        }
+    }
+
     /**
      * The provider's credit budget is exhausted — either the client-side limiter's queue is
      * full, or the provider itself reported a rate-limit error. {@code retryAfter} is the
