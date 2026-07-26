@@ -21,7 +21,9 @@ public class WireMockMarketDataResource implements QuarkusTestResourceLifecycleM
         stubDefaults();
         return Map.of(
                 "quarkus.rest-client.twelve-data-api.url", server.baseUrl(),
-                "application.market-data.twelve-data.api-key", "test-key");
+                "application.market-data.twelve-data.api-key", "test-key",
+                "quarkus.rest-client.eodhd-api.url", server.baseUrl(),
+                "application.market-data.eodhd.api-key", "test-eodhd-key");
     }
 
     public static void stubDefaults() {
@@ -45,6 +47,32 @@ public class WireMockMarketDataResource implements QuarkusTestResourceLifecycleM
                                   ]
                                 }
                                 """)));
+        server.stubFor(WireMock.get(urlPathEqualTo("/api/exchanges-list/"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                [{
+                                  "Name": "USA Stocks",
+                                  "Code": "US",
+                                  "OperatingMIC": "XNAS,XNYS",
+                                  "Country": "USA",
+                                  "Currency": "USD",
+                                  "CountryISO2": "US",
+                                  "CountryISO3": "USA"
+                                }]
+                                """)));
+        server.stubFor(WireMock.get(WireMock.urlPathMatching("/api/search/.*"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[]")));
+        server.stubFor(WireMock.get(WireMock.urlPathMatching("/api/real-time/.*"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"close\":100.0}")));
+        server.stubFor(WireMock.get(WireMock.urlPathMatching("/api/eod/.*"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[]")));
     }
 
     @Override

@@ -84,8 +84,10 @@ class EodhdSymbolResolver {
             return Uni.createFrom().failure(
                     new MarketDataProviderError.SymbolResolution(canonical, "canonical symbol is blank"));
         }
-        return Uni.combine().all().unis(catalog.exchanges(), listings.findBySymbol(canonical)).asTuple()
-                .flatMap(context -> resolve(canonical, context.getItem1(), context.getItem2()));
+        // Both adapters use Hibernate Reactive and may join the same request-scoped session.
+        // Reactive sessions do not support concurrent queries, so load these inputs in sequence.
+        return catalog.exchanges().flatMap(exchanges -> listings.findBySymbol(canonical)
+                .flatMap(instrumentListings -> resolve(canonical, exchanges, instrumentListings)));
     }
 
     private Uni<EodhdResolvedSymbol> resolve(

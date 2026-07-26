@@ -4,6 +4,7 @@ import com.github.database.rider.core.api.configuration.DBUnit;
 import com.github.database.rider.core.api.connection.ConnectionHolder;
 import com.github.database.rider.core.api.dataset.DataSet;
 import com.github.database.rider.junit5.api.DBRider;
+import com.github.tomakehurst.wiremock.client.WireMock;
 import com.portfolio.integration.IntegrationTestProfile;
 import com.portfolio.integration.WireMockMarketDataResource;
 import io.agroal.api.AgroalDataSource;
@@ -13,7 +14,15 @@ import jakarta.enterprise.inject.spi.CDI;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
+
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static io.restassured.RestAssured.given;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
@@ -95,6 +104,64 @@ class DailyHistoryApiIT {
                 .body("$", hasSize(2))
                 .body("find { it.priceDate == '2024-01-01' }.closePrice", equalTo(100.0f))
                 .body("find { it.priceDate == '2024-01-02' }.closePrice", equalTo(101.0f));
+    }
+
+    @Test
+    @DataSet(cleanBefore = true)
+    void givenTwelveDataUnavailable_whenGetPrices_thenFallsBackToEodhdAndPersistsProvenance()
+            throws Exception {
+        WireMockMarketDataResource.server.stubFor(WireMock.get(urlPathEqualTo("/time_series"))
+                .atPriority(1)
+                .willReturn(aResponse().withStatus(500)));
+        WireMockMarketDataResource.server.stubFor(WireMock.get(urlPathEqualTo("/api/search/TSLA"))
+                .atPriority(1)
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                [{
+                                  "Code": "TSLA",
+                                  "Exchange": "US",
+                                  "Name": "Tesla Inc",
+                                  "Type": "Common Stock",
+                                  "Country": "USA",
+                                  "Currency": "USD",
+                                  "isPrimary": true
+                                }]
+                                """)));
+        WireMockMarketDataResource.server.stubFor(WireMock.get(urlPathEqualTo("/api/eod/TSLA.US"))
+                .atPriority(1)
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                [
+                                  {"date":"2024-01-01","close":248.5,"adjusted_close":248.5},
+                                  {"date":"2024-01-02","close":251.25,"adjusted_close":251.25}
+                                ]
+                                """)));
+
+        given()
+                .header("X-User-Id", USER_A)
+                .queryParam("symbols", "TSLA")
+                .queryParam("from", "2024-01-01")
+                .queryParam("to", "2024-01-02")
+                .when()
+                .get("/api/daily-history/prices")
+                .then()
+                .statusCode(200)
+                .body("$", hasSize(2))
+                .body("find { it.priceDate == '2024-01-02' }.closePrice", equalTo(251.25f));
+
+        WireMockMarketDataResource.server.verify(getRequestedFor(urlPathEqualTo("/time_series")));
+        WireMockMarketDataResource.server.verify(getRequestedFor(urlPathEqualTo("/api/exchanges-list/")));
+        WireMockMarketDataResource.server.verify(getRequestedFor(urlPathEqualTo("/api/search/TSLA")));
+        WireMockMarketDataResource.server.verify(getRequestedFor(urlPathEqualTo("/api/eod/TSLA.US")));
+        try (Connection connection = CDI.current().select(AgroalDataSource.class).get().getConnection();
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery(
+                     "select distinct provider from price_history where symbol = 'TSLA'")) {
+            result.next();
+            assertEquals("eodhd", result.getString(1));
+        }
     }
 
     @Test

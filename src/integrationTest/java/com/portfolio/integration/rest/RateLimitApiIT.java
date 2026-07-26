@@ -46,6 +46,25 @@ class RateLimitApiIT {
                                   "status": "error"
                                 }
                                 """)));
+        WireMockMarketDataResource.server.stubFor(WireMock.get(urlPathEqualTo("/api/exchanges-list/"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                [{"Name":"USA Stocks","Code":"US","Country":"USA",
+                                  "Currency":"USD","CountryISO2":"US","CountryISO3":"USA"}]
+                                """)));
+        WireMockMarketDataResource.server.stubFor(WireMock.get(urlPathEqualTo("/api/search/TSLA"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                [{"Code":"TSLA","Exchange":"US","Country":"USA","Currency":"USD"}]
+                                """)));
+        WireMockMarketDataResource.server.stubFor(WireMock.get(urlPathEqualTo("/api/eod/TSLA.US"))
+                .willReturn(aResponse()
+                        .withStatus(429)
+                        .withHeader("Retry-After", "30")
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{}")));
     }
 
     @AfterEach
