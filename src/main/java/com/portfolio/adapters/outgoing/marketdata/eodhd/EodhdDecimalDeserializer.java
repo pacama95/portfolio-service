@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -31,7 +30,9 @@ public class EodhdDecimalDeserializer extends JsonDeserializer<BigDecimal> {
             try {
                 return new BigDecimal(raw);
             } catch (NumberFormatException failure) {
-                throw InvalidFormatException.from(parser, "Expected an EODHD decimal value", raw, BigDecimal.class);
+                // Required-field validation belongs to the adapter, where this becomes a typed
+                // MissingData failure rather than an opaque REST-client decoding exception.
+                return null;
             }
         }
         return (BigDecimal) context.handleUnexpectedToken(BigDecimal.class, parser);
