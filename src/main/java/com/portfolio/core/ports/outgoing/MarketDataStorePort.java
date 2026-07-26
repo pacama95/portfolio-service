@@ -15,21 +15,17 @@ public interface MarketDataStorePort {
 
     Uni<List<PriceHistoryEntry>> findPrices(String symbol, LocalDate from, LocalDate to);
 
-    Uni<Void> upsertPrices(List<PriceHistoryEntry> entries);
-
     Uni<Void> upsertPrices(List<PriceHistoryEntry> entries, String provider);
 
     Uni<List<FxRateEntry>> findFxRates(Currency base, Currency quote, LocalDate from, LocalDate to);
-
-    Uni<Void> upsertFxRates(List<FxRateEntry> entries);
 
     Uni<Void> upsertFxRates(List<FxRateEntry> entries, String provider);
 
     Uni<Optional<SpotQuote>> findSpotQuote(SpotQuoteKind kind, String symbol);
 
-    Uni<SpotQuote> upsertSpotQuote(SpotQuote quote);
-
     Uni<SpotQuote> upsertSpotQuote(SpotQuote quote, String provider);
+
+    Uni<SpotQuote> upsertManualSpotQuote(SpotQuote quote);
 
     Uni<Void> deleteSpotQuote(SpotQuoteKind kind, String symbol);
 

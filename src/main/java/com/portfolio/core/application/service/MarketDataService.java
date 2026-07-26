@@ -2,13 +2,14 @@ package com.portfolio.core.application.service;
 
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.FxRateEntry;
+import com.portfolio.core.model.MarketDataProviderResult;
 import com.portfolio.core.model.PriceHistoryEntry;
 import com.portfolio.core.model.QuoteSource;
 import com.portfolio.core.model.SpotQuote;
 import com.portfolio.core.model.SpotQuoteKind;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
-import com.portfolio.core.ports.outgoing.MarketDataProviderPort;
 import com.portfolio.core.ports.outgoing.MarketDataStorePort;
+import com.portfolio.core.ports.outgoing.RoutedMarketDataProviderPort;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -36,7 +37,7 @@ public class MarketDataService implements MarketDataPort {
     private static final Logger LOG = Logger.getLogger(MarketDataService.class);
 
     private final MarketDataStorePort store;
-    private final MarketDataProviderPort provider;
+    private final RoutedMarketDataProviderPort provider;
     private final Duration spotPriceFreshness;
     private final Duration fxFreshness;
 
@@ -48,7 +49,7 @@ public class MarketDataService implements MarketDataPort {
 
     public MarketDataService(
             MarketDataStorePort store,
-            MarketDataProviderPort provider,
+            RoutedMarketDataProviderPort provider,
             @ConfigProperty(name = "application.market-data.spot-price-freshness", defaultValue = "PT15M")
             Duration spotPriceFreshness,
             @ConfigProperty(name = "application.market-data.fx-freshness", defaultValue = "PT1H")
@@ -73,18 +74,18 @@ public class MarketDataService implements MarketDataPort {
                         return Uni.createFrom().item(optional.get().value());
                     }
                     LOG.infof("Fetching spot price from provider symbol=%s", normalized);
-                    return provider.fetchSpotPrice(normalized)
-                            .flatMap(price -> {
+                    return provider.fetchSpotPriceWithProvider(normalized)
+                            .flatMap(result -> {
                                 SpotQuote quote = new SpotQuote(
                                         SpotQuoteKind.PRICE,
                                         normalized,
-                                        price,
+                                        result.value(),
                                         null,
                                         null,
                                         null,
                                         OffsetDateTime.now(),
                                         QuoteSource.PROVIDER);
-                                return store.upsertSpotQuote(quote).map(SpotQuote::value);
+                                return store.upsertSpotQuote(quote, result.providerId()).map(SpotQuote::value);
                             });
                 });
     }
@@ -102,18 +103,18 @@ public class MarketDataService implements MarketDataPort {
                         return Uni.createFrom().item(optional.get().value());
                     }
                     LOG.infof("Fetching FX rate from provider symbol=%s", symbol);
-                    return provider.fetchFxRate(base, quote)
-                            .flatMap(rate -> {
+                    return provider.fetchFxRateWithProvider(base, quote)
+                            .flatMap(result -> {
                                 SpotQuote spot = new SpotQuote(
                                         SpotQuoteKind.FX,
                                         symbol,
-                                        rate,
+                                        result.value(),
                                         null,
                                         base,
                                         quote,
                                         OffsetDateTime.now(),
                                         QuoteSource.PROVIDER);
-                                return store.upsertSpotQuote(spot).map(SpotQuote::value);
+                                return store.upsertSpotQuote(spot, result.providerId()).map(SpotQuote::value);
                             });
                 });
     }
@@ -160,18 +161,22 @@ public class MarketDataService implements MarketDataPort {
             String symbol, LocalDate from, LocalDate effectiveTo, LocalDate fetchFrom, LocalDate fetchTo) {
         String key = "PRICE:" + symbol + ":" + from + ":" + effectiveTo;
         return inFlightPriceFetches.computeIfAbsent(key, ignored ->
-                provider.fetchPriceHistory(symbol, fetchFrom, fetchTo)
-                        .flatMap(fetched -> persistPriceFetch(symbol, from, effectiveTo, fetched))
+                provider.fetchPriceHistoryWithProvider(symbol, fetchFrom, fetchTo)
+                        .flatMap(result -> persistPriceFetch(symbol, from, effectiveTo, result))
                         .onTermination().invoke(() -> inFlightPriceFetches.remove(key))
                         .memoize().indefinitely());
     }
 
     private Uni<List<PriceHistoryEntry>> persistPriceFetch(
-            String symbol, LocalDate from, LocalDate effectiveTo, List<PriceHistoryEntry> fetched) {
-        Uni<Void> persisted = store.upsertPrices(fetched);
+            String symbol,
+            LocalDate from,
+            LocalDate effectiveTo,
+            MarketDataProviderResult<List<PriceHistoryEntry>> result) {
+        Uni<Void> persisted = store.upsertPrices(result.value(), result.providerId());
         LocalDate coverageTo = coverageUpperBound(effectiveTo);
         if (!coverageTo.isBefore(from)) {
-            persisted = persisted.chain(() -> store.recordCoverage("PRICE", symbol, from, coverageTo, "twelvedata"));
+            persisted = persisted.chain(() ->
+                    store.recordCoverage("PRICE", symbol, from, coverageTo, result.providerId()));
         }
         return persisted.chain(() -> store.findPrices(symbol, from, effectiveTo));
     }
@@ -226,19 +231,20 @@ public class MarketDataService implements MarketDataPort {
             LocalDate fetchFrom, LocalDate fetchTo) {
         String key = "FX:" + symbol + ":" + from + ":" + effectiveTo;
         return inFlightFxFetches.computeIfAbsent(key, ignored ->
-                provider.fetchFxHistory(base, quote, fetchFrom, fetchTo)
-                        .flatMap(fetched -> persistFxFetch(base, quote, symbol, from, effectiveTo, fetched))
+                provider.fetchFxHistoryWithProvider(base, quote, fetchFrom, fetchTo)
+                        .flatMap(result -> persistFxFetch(base, quote, symbol, from, effectiveTo, result))
                         .onTermination().invoke(() -> inFlightFxFetches.remove(key))
                         .memoize().indefinitely());
     }
 
     private Uni<List<FxRateEntry>> persistFxFetch(
             Currency base, Currency quote, String symbol, LocalDate from, LocalDate effectiveTo,
-            List<FxRateEntry> fetched) {
-        Uni<Void> persisted = store.upsertFxRates(fetched);
+            MarketDataProviderResult<List<FxRateEntry>> result) {
+        Uni<Void> persisted = store.upsertFxRates(result.value(), result.providerId());
         LocalDate coverageTo = coverageUpperBound(effectiveTo);
         if (!coverageTo.isBefore(from)) {
-            persisted = persisted.chain(() -> store.recordCoverage("FX", symbol, from, coverageTo, "twelvedata"));
+            persisted = persisted.chain(() ->
+                    store.recordCoverage("FX", symbol, from, coverageTo, result.providerId()));
         }
         return persisted.chain(() -> store.findFxRates(base, quote, from, effectiveTo));
     }
@@ -256,7 +262,7 @@ public class MarketDataService implements MarketDataPort {
                 null,
                 OffsetDateTime.now(),
                 QuoteSource.MANUAL);
-        return store.upsertSpotQuote(quote);
+        return store.upsertManualSpotQuote(quote);
     }
 
     @Override

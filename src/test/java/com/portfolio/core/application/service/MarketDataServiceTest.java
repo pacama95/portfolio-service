@@ -2,12 +2,13 @@ package com.portfolio.core.application.service;
 
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.FxRateEntry;
+import com.portfolio.core.model.MarketDataProviderResult;
 import com.portfolio.core.model.PriceHistoryEntry;
 import com.portfolio.core.model.QuoteSource;
 import com.portfolio.core.model.SpotQuote;
 import com.portfolio.core.model.SpotQuoteKind;
-import com.portfolio.core.ports.outgoing.MarketDataProviderPort;
 import com.portfolio.core.ports.outgoing.MarketDataStorePort;
+import com.portfolio.core.ports.outgoing.RoutedMarketDataProviderPort;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import io.smallrye.mutiny.subscription.UniEmitter;
@@ -36,7 +37,7 @@ import static org.mockito.Mockito.when;
 class MarketDataServiceTest {
 
     private final MarketDataStorePort store = Mockito.mock(MarketDataStorePort.class);
-    private final MarketDataProviderPort provider = Mockito.mock(MarketDataProviderPort.class);
+    private final RoutedMarketDataProviderPort provider = Mockito.mock(RoutedMarketDataProviderPort.class);
     private MarketDataService service;
 
     @BeforeEach
@@ -56,7 +57,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(0, new BigDecimal("190").compareTo(price));
-        verify(provider, never()).fetchSpotPrice(any());
+        verify(provider, never()).fetchSpotPriceWithProvider(any());
     }
 
     @Test
@@ -64,8 +65,9 @@ class MarketDataServiceTest {
         when(store.findSpotQuote(SpotQuoteKind.PRICE, "AAPL")).thenReturn(Uni.createFrom().item(Optional.of(
                 new SpotQuote(SpotQuoteKind.PRICE, "AAPL", new BigDecimal("180"), null, null, null,
                         OffsetDateTime.now().minusHours(2), QuoteSource.PROVIDER))));
-        when(provider.fetchSpotPrice("AAPL")).thenReturn(Uni.createFrom().item(new BigDecimal("191")));
-        when(store.upsertSpotQuote(any(SpotQuote.class))).thenAnswer(inv -> {
+        when(provider.fetchSpotPriceWithProvider("AAPL"))
+                .thenReturn(providerResult("eodhd", new BigDecimal("191")));
+        when(store.upsertSpotQuote(any(SpotQuote.class), any())).thenAnswer(inv -> {
             SpotQuote quote = inv.getArgument(0, SpotQuote.class);
             return Uni.createFrom().item(quote);
         });
@@ -76,7 +78,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(0, new BigDecimal("191").compareTo(price));
-        verify(store).upsertSpotQuote(any());
+        verify(store).upsertSpotQuote(any(), eq("eodhd"));
     }
 
     @Test
@@ -94,7 +96,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(2, result.size());
-        verify(provider, never()).fetchPriceHistory(any(), any(), any());
+        verify(provider, never()).fetchPriceHistoryWithProvider(any(), any(), any());
     }
 
     @Test
@@ -117,7 +119,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(stored.size(), result.size());
-        verify(provider, never()).fetchPriceHistory(any(), any(), any());
+        verify(provider, never()).fetchPriceHistoryWithProvider(any(), any(), any());
         verify(store, never()).hasCoverage(any(), any(), any(), any());
     }
 
@@ -132,9 +134,9 @@ class MarketDataServiceTest {
                         new PriceHistoryEntry("AAPL", from, new BigDecimal("100"), null, Currency.USD, OffsetDateTime.now()),
                         new PriceHistoryEntry("AAPL", to, new BigDecimal("101"), null, Currency.USD, OffsetDateTime.now()))));
         when(store.hasCoverage("PRICE", "AAPL", from, to)).thenReturn(Uni.createFrom().item(false));
-        when(provider.fetchPriceHistory("AAPL", to, to)).thenReturn(Uni.createFrom().item(List.of(
+        when(provider.fetchPriceHistoryWithProvider("AAPL", to, to)).thenReturn(providerResult("eodhd", List.of(
                 new PriceHistoryEntry("AAPL", to, new BigDecimal("101"), null, Currency.USD, OffsetDateTime.now()))));
-        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.upsertPrices(any(), any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
         List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to)
@@ -143,8 +145,9 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(2, result.size());
-        verify(provider).fetchPriceHistory("AAPL", to, to);
-        verify(store).upsertPrices(any());
+        verify(provider).fetchPriceHistoryWithProvider("AAPL", to, to);
+        verify(store).upsertPrices(any(), eq("eodhd"));
+        verify(store).recordCoverage("PRICE", "AAPL", from, to, "eodhd");
     }
 
     @Test
@@ -159,15 +162,16 @@ class MarketDataServiceTest {
                 .thenReturn(Uni.createFrom().item(List.of()))
                 .thenReturn(Uni.createFrom().item(fullyFetched));
         when(store.hasCoverage("PRICE", "AAPL", from, to)).thenReturn(Uni.createFrom().item(false));
-        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.upsertPrices(any(), any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
         @SuppressWarnings("unchecked")
-        AtomicReference<UniEmitter<List<PriceHistoryEntry>>> emitterHolder = new AtomicReference<>();
-        Uni<List<PriceHistoryEntry>> pendingProviderCall = Uni.createFrom().emitter(
-                (UniEmitter<? super List<PriceHistoryEntry>> e) ->
-                        emitterHolder.set((UniEmitter<List<PriceHistoryEntry>>) e));
-        when(provider.fetchPriceHistory("AAPL", from, to)).thenReturn(pendingProviderCall);
+        AtomicReference<UniEmitter<MarketDataProviderResult<List<PriceHistoryEntry>>>> emitterHolder =
+                new AtomicReference<>();
+        Uni<MarketDataProviderResult<List<PriceHistoryEntry>>> pendingProviderCall = Uni.createFrom().emitter(
+                (UniEmitter<? super MarketDataProviderResult<List<PriceHistoryEntry>>> e) ->
+                        emitterHolder.set((UniEmitter<MarketDataProviderResult<List<PriceHistoryEntry>>>) e));
+        when(provider.fetchPriceHistoryWithProvider("AAPL", from, to)).thenReturn(pendingProviderCall);
 
         // Both requests reach the coalescing point before the provider call resolves,
         // mirroring two concurrent frontend requests racing on the same symbol/range.
@@ -179,12 +183,12 @@ class MarketDataServiceTest {
         first.assertNotTerminated();
         second.assertNotTerminated();
 
-        emitterHolder.get().complete(fullyFetched);
+        emitterHolder.get().complete(new MarketDataProviderResult<>("twelvedata", fullyFetched));
 
         assertEquals(2, first.awaitItem().getItem().size());
         assertEquals(2, second.awaitItem().getItem().size());
-        verify(provider, times(1)).fetchPriceHistory("AAPL", from, to);
-        verify(store, times(1)).upsertPrices(any());
+        verify(provider, times(1)).fetchPriceHistoryWithProvider("AAPL", from, to);
+        verify(store, times(1)).upsertPrices(any(), eq("twelvedata"));
         verify(store, times(1)).recordCoverage(any(), any(), any(), any(), any());
     }
 
@@ -197,7 +201,7 @@ class MarketDataServiceTest {
 
         assertEquals(0, BigDecimal.ONE.compareTo(rate));
         verify(store, never()).findSpotQuote(any(), any());
-        verify(provider, never()).fetchFxRate(any(), any());
+        verify(provider, never()).fetchFxRateWithProvider(any(), any());
     }
 
     @Test
@@ -212,7 +216,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(0, new BigDecimal("1.10").compareTo(rate));
-        verify(provider, never()).fetchFxRate(any(), any());
+        verify(provider, never()).fetchFxRateWithProvider(any(), any());
     }
 
     @Test
@@ -220,8 +224,9 @@ class MarketDataServiceTest {
         when(store.findSpotQuote(SpotQuoteKind.FX, "EUR/USD")).thenReturn(Uni.createFrom().item(Optional.of(
                 new SpotQuote(SpotQuoteKind.FX, "EUR/USD", new BigDecimal("1.05"), null,
                         Currency.EUR, Currency.USD, OffsetDateTime.now().minusHours(3), QuoteSource.PROVIDER))));
-        when(provider.fetchFxRate(Currency.EUR, Currency.USD)).thenReturn(Uni.createFrom().item(new BigDecimal("1.12")));
-        when(store.upsertSpotQuote(any(SpotQuote.class))).thenAnswer(inv -> {
+        when(provider.fetchFxRateWithProvider(Currency.EUR, Currency.USD))
+                .thenReturn(providerResult("eodhd", new BigDecimal("1.12")));
+        when(store.upsertSpotQuote(any(SpotQuote.class), any())).thenAnswer(inv -> {
             SpotQuote quote = inv.getArgument(0, SpotQuote.class);
             return Uni.createFrom().item(quote);
         });
@@ -232,7 +237,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(0, new BigDecimal("1.12").compareTo(rate));
-        verify(store).upsertSpotQuote(any());
+        verify(store).upsertSpotQuote(any(), eq("eodhd"));
     }
 
     @Test
@@ -250,7 +255,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(1, result.size());
-        verify(provider, never()).fetchPriceHistory(any(), any(), any());
+        verify(provider, never()).fetchPriceHistoryWithProvider(any(), any(), any());
     }
 
     @Test
@@ -279,9 +284,9 @@ class MarketDataServiceTest {
                         new FxRateEntry(Currency.EUR, Currency.USD, from, new BigDecimal("1.10"), OffsetDateTime.now()),
                         new FxRateEntry(Currency.EUR, Currency.USD, to, new BigDecimal("1.11"), OffsetDateTime.now()))));
         when(store.hasCoverage("FX", "EUR/USD", from, to)).thenReturn(Uni.createFrom().item(false));
-        when(provider.fetchFxHistory(Currency.EUR, Currency.USD, to, to)).thenReturn(Uni.createFrom().item(List.of(
+        when(provider.fetchFxHistoryWithProvider(Currency.EUR, Currency.USD, to, to)).thenReturn(providerResult("eodhd", List.of(
                 new FxRateEntry(Currency.EUR, Currency.USD, to, new BigDecimal("1.11"), OffsetDateTime.now()))));
-        when(store.upsertFxRates(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.upsertFxRates(any(), any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
         List<FxRateEntry> result = service.getFxHistory(Currency.EUR, Currency.USD, from, to)
@@ -290,15 +295,17 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(2, result.size());
-        verify(provider).fetchFxHistory(Currency.EUR, Currency.USD, to, to);
-        verify(store).upsertFxRates(any());
+        verify(provider).fetchFxHistoryWithProvider(Currency.EUR, Currency.USD, to, to);
+        verify(store).upsertFxRates(any(), eq("eodhd"));
+        verify(store).recordCoverage("FX", "EUR/USD", from, to, "eodhd");
     }
 
     @Test
     void givenNoStoredSpotQuote_whenGetSpotPrice_thenFetchesFromProvider() {
         when(store.findSpotQuote(SpotQuoteKind.PRICE, "AAPL")).thenReturn(Uni.createFrom().item(Optional.empty()));
-        when(provider.fetchSpotPrice("AAPL")).thenReturn(Uni.createFrom().item(new BigDecimal("192")));
-        when(store.upsertSpotQuote(any(SpotQuote.class))).thenAnswer(inv -> {
+        when(provider.fetchSpotPriceWithProvider("AAPL"))
+                .thenReturn(providerResult(new BigDecimal("192")));
+        when(store.upsertSpotQuote(any(SpotQuote.class), any())).thenAnswer(inv -> {
             SpotQuote quote = inv.getArgument(0, SpotQuote.class);
             return Uni.createFrom().item(quote);
         });
@@ -309,7 +316,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(0, new BigDecimal("192").compareTo(price));
-        verify(provider).fetchSpotPrice("AAPL");
+        verify(provider).fetchSpotPriceWithProvider("AAPL");
     }
 
     @Test
@@ -317,8 +324,9 @@ class MarketDataServiceTest {
         when(store.findSpotQuote(SpotQuoteKind.PRICE, "AAPL")).thenReturn(Uni.createFrom().item(Optional.of(
                 new SpotQuote(SpotQuoteKind.PRICE, "AAPL", new BigDecimal("180"), null, null, null,
                         null, QuoteSource.PROVIDER))));
-        when(provider.fetchSpotPrice("AAPL")).thenReturn(Uni.createFrom().item(new BigDecimal("193")));
-        when(store.upsertSpotQuote(any(SpotQuote.class))).thenAnswer(inv -> {
+        when(provider.fetchSpotPriceWithProvider("AAPL"))
+                .thenReturn(providerResult(new BigDecimal("193")));
+        when(store.upsertSpotQuote(any(SpotQuote.class), any())).thenAnswer(inv -> {
             SpotQuote quote = inv.getArgument(0, SpotQuote.class);
             return Uni.createFrom().item(quote);
         });
@@ -329,14 +337,15 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(0, new BigDecimal("193").compareTo(price));
-        verify(provider).fetchSpotPrice("AAPL");
+        verify(provider).fetchSpotPriceWithProvider("AAPL");
     }
 
     @Test
     void givenNoStoredFxQuote_whenGetFxRate_thenFetchesFromProvider() {
         when(store.findSpotQuote(SpotQuoteKind.FX, "EUR/USD")).thenReturn(Uni.createFrom().item(Optional.empty()));
-        when(provider.fetchFxRate(Currency.EUR, Currency.USD)).thenReturn(Uni.createFrom().item(new BigDecimal("1.15")));
-        when(store.upsertSpotQuote(any(SpotQuote.class))).thenAnswer(inv -> {
+        when(provider.fetchFxRateWithProvider(Currency.EUR, Currency.USD))
+                .thenReturn(providerResult(new BigDecimal("1.15")));
+        when(store.upsertSpotQuote(any(SpotQuote.class), any())).thenAnswer(inv -> {
             SpotQuote quote = inv.getArgument(0, SpotQuote.class);
             return Uni.createFrom().item(quote);
         });
@@ -347,7 +356,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(0, new BigDecimal("1.15").compareTo(rate));
-        verify(provider).fetchFxRate(Currency.EUR, Currency.USD);
+        verify(provider).fetchFxRateWithProvider(Currency.EUR, Currency.USD);
     }
 
     @Test
@@ -360,10 +369,10 @@ class MarketDataServiceTest {
                         new PriceHistoryEntry("AAPL", from, new BigDecimal("100"), null, Currency.USD, OffsetDateTime.now()),
                         new PriceHistoryEntry("AAPL", to, new BigDecimal("101"), null, Currency.USD, OffsetDateTime.now()))));
         when(store.hasCoverage("PRICE", "AAPL", from, to)).thenReturn(Uni.createFrom().item(false));
-        when(provider.fetchPriceHistory("AAPL", from, to)).thenReturn(Uni.createFrom().item(List.of(
+        when(provider.fetchPriceHistoryWithProvider("AAPL", from, to)).thenReturn(providerResult(List.of(
                 new PriceHistoryEntry("AAPL", from, new BigDecimal("100"), null, Currency.USD, OffsetDateTime.now()),
                 new PriceHistoryEntry("AAPL", to, new BigDecimal("101"), null, Currency.USD, OffsetDateTime.now()))));
-        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.upsertPrices(any(), any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
         List<PriceHistoryEntry> result = service.getPriceHistory("AAPL", from, to)
@@ -372,7 +381,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(2, result.size());
-        verify(provider).fetchPriceHistory("AAPL", from, to);
+        verify(provider).fetchPriceHistoryWithProvider("AAPL", from, to);
     }
 
     @Test
@@ -382,10 +391,10 @@ class MarketDataServiceTest {
         LocalDate futureTo = today.plusDays(30);
         when(store.findPrices("AAPL", from, today)).thenReturn(Uni.createFrom().item(List.of()));
         when(store.hasCoverage("PRICE", "AAPL", from, today)).thenReturn(Uni.createFrom().item(false));
-        when(provider.fetchPriceHistory(eq("AAPL"), any(), any())).thenReturn(Uni.createFrom().item(List.of(
+        when(provider.fetchPriceHistoryWithProvider(eq("AAPL"), any(), any())).thenReturn(providerResult(List.of(
                 new PriceHistoryEntry("AAPL", from, new BigDecimal("100"), null, Currency.USD, OffsetDateTime.now())
         )));
-        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.upsertPrices(any(), any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
         service.getPriceHistory("AAPL", from, futureTo)
@@ -395,7 +404,7 @@ class MarketDataServiceTest {
 
         verify(store, never()).findPrices("AAPL", from, futureTo);
         verify(store, times(2)).findPrices("AAPL", from, today);
-        verify(provider, never()).fetchPriceHistory(eq("AAPL"), any(), eq(futureTo));
+        verify(provider, never()).fetchPriceHistoryWithProvider(eq("AAPL"), any(), eq(futureTo));
     }
 
     @Test
@@ -403,8 +412,8 @@ class MarketDataServiceTest {
         LocalDate today = LocalDate.now();
         when(store.findPrices("AAPL", today, today)).thenReturn(Uni.createFrom().item(List.of()));
         when(store.hasCoverage("PRICE", "AAPL", today, today)).thenReturn(Uni.createFrom().item(false));
-        when(provider.fetchPriceHistory("AAPL", today, today)).thenReturn(Uni.createFrom().item(List.of()));
-        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+        when(provider.fetchPriceHistoryWithProvider("AAPL", today, today)).thenReturn(providerResult(List.of()));
+        when(store.upsertPrices(any(), any())).thenReturn(Uni.createFrom().voidItem());
 
         service.getPriceHistory("AAPL", today, today)
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
@@ -420,10 +429,10 @@ class MarketDataServiceTest {
         LocalDate to = LocalDate.now().minusDays(1);
         when(store.findPrices("AAPL", from, to)).thenReturn(Uni.createFrom().item(List.of()));
         when(store.hasCoverage("PRICE", "AAPL", from, to)).thenReturn(Uni.createFrom().item(false));
-        when(provider.fetchPriceHistory(eq("AAPL"), any(), any())).thenReturn(Uni.createFrom().item(List.of(
+        when(provider.fetchPriceHistoryWithProvider(eq("AAPL"), any(), any())).thenReturn(providerResult(List.of(
                 new PriceHistoryEntry("AAPL", from, new BigDecimal("100"), null, Currency.USD, OffsetDateTime.now())
         )));
-        when(store.upsertPrices(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.upsertPrices(any(), any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
         service.getPriceHistory("AAPL", from, to)
@@ -441,11 +450,11 @@ class MarketDataServiceTest {
         LocalDate futureTo = today.plusDays(30);
         when(store.findFxRates(Currency.EUR, Currency.USD, from, today)).thenReturn(Uni.createFrom().item(List.of()));
         when(store.hasCoverage("FX", "EUR/USD", from, today)).thenReturn(Uni.createFrom().item(false));
-        when(provider.fetchFxHistory(eq(Currency.EUR), eq(Currency.USD), any(), any()))
-                .thenReturn(Uni.createFrom().item(List.of(
+        when(provider.fetchFxHistoryWithProvider(eq(Currency.EUR), eq(Currency.USD), any(), any()))
+                .thenReturn(providerResult(List.of(
                         new FxRateEntry(Currency.EUR, Currency.USD, from, new BigDecimal("1.1"), OffsetDateTime.now())
                 )));
-        when(store.upsertFxRates(any())).thenReturn(Uni.createFrom().voidItem());
+        when(store.upsertFxRates(any(), any())).thenReturn(Uni.createFrom().voidItem());
         when(store.recordCoverage(any(), any(), any(), any(), any())).thenReturn(Uni.createFrom().voidItem());
 
         service.getFxHistory(Currency.EUR, Currency.USD, from, futureTo)
@@ -459,7 +468,7 @@ class MarketDataServiceTest {
 
     @Test
     void givenManualPrice_whenSetManualPrice_thenUpsertsManualQuote() {
-        when(store.upsertSpotQuote(any(SpotQuote.class))).thenAnswer(inv -> {
+        when(store.upsertManualSpotQuote(any(SpotQuote.class))).thenAnswer(inv -> {
             SpotQuote quote = inv.getArgument(0, SpotQuote.class);
             return Uni.createFrom().item(quote);
         });
@@ -473,7 +482,7 @@ class MarketDataServiceTest {
         assertEquals(0, new BigDecimal("199.50").compareTo(quote.value()));
         assertEquals(Currency.USD, quote.currency());
         assertEquals(QuoteSource.MANUAL, quote.source());
-        verify(store).upsertSpotQuote(any());
+        verify(store).upsertManualSpotQuote(any());
     }
 
     @Test
@@ -490,7 +499,7 @@ class MarketDataServiceTest {
                 .getItem();
 
         assertEquals(0, new BigDecimal("199.50").compareTo(price));
-        verify(provider, never()).fetchSpotPrice(any());
+        verify(provider, never()).fetchSpotPriceWithProvider(any());
     }
 
     @Test
@@ -502,5 +511,13 @@ class MarketDataServiceTest {
                 .awaitItem();
 
         verify(store).deleteSpotQuote(SpotQuoteKind.PRICE, "AAPL");
+    }
+
+    private <T> Uni<MarketDataProviderResult<T>> providerResult(T value) {
+        return providerResult("twelvedata", value);
+    }
+
+    private <T> Uni<MarketDataProviderResult<T>> providerResult(String providerId, T value) {
+        return Uni.createFrom().item(new MarketDataProviderResult<>(providerId, value));
     }
 }

@@ -74,7 +74,7 @@ class MarketDataStoreIT {
                 Currency.USD,
                 now));
 
-        asserter.execute(() -> store.upsertPrices(entries));
+        asserter.execute(() -> store.upsertPrices(entries, "twelvedata"));
         asserter.assertThat(
                 () -> store.findPrices("MSFT", LocalDate.of(2024, 2, 1), LocalDate.of(2024, 2, 1)),
                 prices -> {
@@ -100,7 +100,7 @@ class MarketDataStoreIT {
                         "GOOG", LocalDate.of(2024, 3, 2), new BigDecimal("151.000000"),
                         new BigDecimal("151.000000"), Currency.USD, now));
 
-        asserter.execute(() -> store.upsertPrices(entries));
+        asserter.execute(() -> store.upsertPrices(entries, "twelvedata"));
         asserter.assertThat(
                 () -> store.findPrices("AAPL", LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)),
                 prices -> assertEquals(0, new BigDecimal("999.000000").compareTo(prices.getFirst().closePrice())));
@@ -135,7 +135,7 @@ class MarketDataStoreIT {
                 QuoteSource.MANUAL);
 
         asserter.assertThat(
-                () -> store.upsertSpotQuote(updated),
+                () -> store.upsertManualSpotQuote(updated),
                 quote -> assertEquals(0, new BigDecimal("200.00000000").compareTo(quote.value())));
         asserter.assertThat(
                 () -> store.findSpotQuote(SpotQuoteKind.PRICE, "AAPL"),
@@ -144,6 +144,7 @@ class MarketDataStoreIT {
                     assertEquals(QuoteSource.MANUAL, optional.get().source());
                     assertEquals(0, new BigDecimal("200.00000000").compareTo(optional.get().value()));
                 });
+        asserter.assertThat(() -> storedProvider("spot_quotes"), Assertions::assertNull);
     }
 
     @Test
@@ -180,7 +181,7 @@ class MarketDataStoreIT {
                 new BigDecimal("1.12000000"),
                 OffsetDateTime.parse("2024-01-02T12:00:00Z"));
 
-        asserter.execute(() -> store.upsertFxRates(List.of(entry)));
+        asserter.execute(() -> store.upsertFxRates(List.of(entry), "twelvedata"));
         asserter.assertThat(
                 () -> store.findFxRates(
                         Currency.EUR, Currency.USD, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 2)),
@@ -228,7 +229,7 @@ class MarketDataStoreIT {
     @Test
     @RunOnVertxContext
     @DataSet(cleanBefore = true)
-    void givenCoverageAlreadyRecorded_whenRecordCoverageAgain_thenIgnoresDuplicateWithoutThrowing(
+    void givenCoverageAlreadyRecorded_whenRecordedByFallback_thenUpdatesProviderWithoutDuplicating(
             UniAsserter asserter) {
         LocalDate from = LocalDate.of(2024, 1, 1);
         LocalDate to = LocalDate.of(2024, 1, 2);
@@ -236,10 +237,11 @@ class MarketDataStoreIT {
         asserter.execute(() -> store.recordCoverage("PRICE", "AAPL", from, to, "twelvedata"));
         // Simulates a second concurrent request racing on the identical (kind, symbol, from, to)
         // tuple that already violates the market_data_coverage unique constraint.
-        asserter.execute(() -> store.recordCoverage("PRICE", "AAPL", from, to, "twelvedata"));
+        asserter.execute(() -> store.recordCoverage("PRICE", "AAPL", from, to, "eodhd"));
         asserter.assertThat(
                 () -> store.hasCoverage("PRICE", "AAPL", from, to),
                 Assertions::assertTrue);
+        asserter.assertThat(() -> storedProvider("market_data_coverage"), provider -> assertEquals("eodhd", provider));
     }
 
     private io.smallrye.mutiny.Uni<String> storedProvider(String table) {

@@ -44,12 +44,6 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
 
     @Override
     @WithTransaction
-    public Uni<Void> upsertPrices(List<PriceHistoryEntry> entries) {
-        return upsertPrices(entries, "twelvedata");
-    }
-
-    @Override
-    @WithTransaction
     public Uni<Void> upsertPrices(List<PriceHistoryEntry> entries, String provider) {
         if (entries == null || entries.isEmpty()) {
             return Uni.createFrom().voidItem();
@@ -112,12 +106,6 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
 
     @Override
     @WithTransaction
-    public Uni<Void> upsertFxRates(List<FxRateEntry> entries) {
-        return upsertFxRates(entries, "twelvedata");
-    }
-
-    @Override
-    @WithTransaction
     public Uni<Void> upsertFxRates(List<FxRateEntry> entries, String provider) {
         if (entries == null || entries.isEmpty()) {
             return Uni.createFrom().voidItem();
@@ -173,12 +161,6 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
 
     @Override
     @WithTransaction
-    public Uni<SpotQuote> upsertSpotQuote(SpotQuote quote) {
-        return upsertSpotQuote(quote, quote.source() == QuoteSource.MANUAL ? null : "twelvedata");
-    }
-
-    @Override
-    @WithTransaction
     public Uni<SpotQuote> upsertSpotQuote(SpotQuote quote, String provider) {
         if (quote.source() == QuoteSource.PROVIDER) {
             requireProvider(provider);
@@ -219,6 +201,16 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
 
     @Override
     @WithTransaction
+    public Uni<SpotQuote> upsertManualSpotQuote(SpotQuote quote) {
+        if (quote.source() != QuoteSource.MANUAL) {
+            return Uni.createFrom().failure(
+                    new IllegalArgumentException("upsertManualSpotQuote requires source=MANUAL"));
+        }
+        return upsertSpotQuote(quote, null);
+    }
+
+    @Override
+    @WithTransaction
     public Uni<Void> deleteSpotQuote(SpotQuoteKind kind, String symbol) {
         return Panache.getSession().flatMap(session ->
                 session.createQuery("delete from SpotQuoteEntity s where s.kind = :kind and s.symbol = :symbol")
@@ -252,7 +244,8 @@ public class MarketDataStoreAdapter implements MarketDataStorePort {
                                 "insert into market_data_coverage "
                                         + "(id, coverage_kind, symbol, from_date, to_date, provider, fetched_at, created_at) "
                                         + "values (:id, :kind, :symbol, :from, :to, :provider, :fetchedAt, :createdAt) "
-                                        + "on conflict (coverage_kind, symbol, from_date, to_date) do nothing")
+                                        + "on conflict (coverage_kind, symbol, from_date, to_date) do update set "
+                                        + "provider = excluded.provider, fetched_at = excluded.fetched_at")
                         .setParameter("id", UUID.randomUUID())
                         .setParameter("kind", coverageKind)
                         .setParameter("symbol", symbol)
