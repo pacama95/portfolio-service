@@ -9,6 +9,7 @@ import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.eclipse.microprofile.config.Config;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -131,9 +132,70 @@ class OrderedMarketDataProviderRouterTest {
 
     @Test
     void givenInvalidProviderConfiguration_whenConstructing_thenFailsFast() {
+        assertThrows(IllegalArgumentException.class, () -> router(null));
         assertThrows(IllegalArgumentException.class, () -> router(""));
+        assertThrows(IllegalArgumentException.class, () -> router("twelvedata,"));
         assertThrows(IllegalArgumentException.class, () -> router("eodhd,eodhd"));
         assertThrows(IllegalArgumentException.class, () -> router("unknown"));
+    }
+
+    @Test
+    void givenSingleConfiguredProviderFailure_whenRouting_thenPreservesTypedFailure() {
+        MarketDataProviderError.MissingData failure = new MarketDataProviderError.MissingData("AAPL", "close");
+        when(eodhd.fetchSpotPrice("AAPL")).thenReturn(Uni.createFrom().failure(failure));
+
+        Throwable result = router("eodhd").fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure().getFailure();
+
+        assertEquals(failure, result);
+    }
+
+    @Test
+    void givenPlainPortMethods_whenCalled_thenDelegateThroughProviderAwareRouting() {
+        LocalDate date = LocalDate.of(2024, 1, 1);
+        when(twelveData.fetchFxRate(Currency.EUR, Currency.USD))
+                .thenReturn(Uni.createFrom().item(new BigDecimal("1.1")));
+        when(twelveData.fetchPriceHistory("AAPL", date, date))
+                .thenReturn(Uni.createFrom().item(List.of()));
+        when(twelveData.fetchFxHistory(Currency.EUR, Currency.USD, date, date))
+                .thenReturn(Uni.createFrom().item(List.of()));
+        OrderedMarketDataProviderRouter router = router("twelvedata");
+
+        assertEquals(new BigDecimal("1.1"), await(router.fetchFxRate(Currency.EUR, Currency.USD)));
+        assertEquals(List.of(), await(router.fetchPriceHistory("AAPL", date, date)));
+        assertEquals(List.of(), await(router.fetchFxHistory(Currency.EUR, Currency.USD, date, date)));
+    }
+
+    @Test
+    void givenMissingConfiguredCredential_whenConstructingCdiRouter_thenFailsFast() {
+        Config config = Mockito.mock(Config.class);
+        when(config.getOptionalValue("application.market-data.twelve-data.api-key", String.class))
+                .thenReturn(java.util.Optional.of("not-configured"));
+
+        assertThrows(IllegalArgumentException.class, () -> new OrderedMarketDataProviderRouter(
+                twelveData, eodhd, "twelvedata", config));
+    }
+
+    @Test
+    void givenAbsentConfiguredCredential_whenConstructingCdiRouter_thenFailsFast() {
+        Config config = Mockito.mock(Config.class);
+        when(config.getOptionalValue("application.market-data.eodhd.api-key", String.class))
+                .thenReturn(java.util.Optional.empty());
+
+        assertThrows(IllegalArgumentException.class, () -> new OrderedMarketDataProviderRouter(
+                twelveData, eodhd, "eodhd", config));
+    }
+
+    @Test
+    void givenConfiguredCredentials_whenConstructingCdiRouter_thenAcceptsEveryListedProvider() {
+        Config config = Mockito.mock(Config.class);
+        when(config.getOptionalValue("application.market-data.twelve-data.api-key", String.class))
+                .thenReturn(java.util.Optional.of("td-key"));
+        when(config.getOptionalValue("application.market-data.eodhd.api-key", String.class))
+                .thenReturn(java.util.Optional.of("eod-key"));
+
+        new OrderedMarketDataProviderRouter(twelveData, eodhd, "twelvedata,eodhd", config);
     }
 
     private OrderedMarketDataProviderRouter router(String providers) {

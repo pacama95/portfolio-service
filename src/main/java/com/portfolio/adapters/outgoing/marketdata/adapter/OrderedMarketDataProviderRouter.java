@@ -162,7 +162,7 @@ public class OrderedMarketDataProviderRouter implements MarketDataProviderPort, 
         }
         List<Provider> ordered = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (String raw : configured.split(",")) {
+        for (String raw : configured.split(",", -1)) {
             String id = raw.trim().toLowerCase(Locale.ROOT);
             if (id.isBlank()) {
                 throw new IllegalArgumentException("application.market-data.providers contains an empty provider");
