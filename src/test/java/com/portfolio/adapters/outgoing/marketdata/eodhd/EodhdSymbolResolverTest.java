@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.eclipse.microprofile.config.Config;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -140,6 +141,138 @@ class EodhdSymbolResolverTest {
         verify(store, never()).upsertSymbolMapping(any());
     }
 
+    @Test
+    void givenBlankCanonicalSymbol_whenResolving_thenFailsBeforeAnyDependencyCall() {
+        resolver.resolve(" ")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.SymbolResolution.class);
+
+        verify(catalog, never()).exchanges();
+    }
+
+    @Test
+    void givenUniqueExactResultWithoutMetadata_whenResolving_thenUsesUniqueSearchSource() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("TSLA")).thenReturn(Uni.createFrom().item(List.of()));
+        when(client.search("TSLA", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("TSLA", "US", "USA", "USD"))));
+
+        assertEquals("TSLA.US", await(resolver.resolve("TSLA")).providerSymbol());
+        ArgumentCaptor<EodhdSymbolMapping> mapping = ArgumentCaptor.forClass(EodhdSymbolMapping.class);
+        verify(store).upsertSymbolMapping(mapping.capture());
+        assertEquals(EodhdResolutionSource.UNIQUE_SEARCH, mapping.getValue().resolutionSource());
+    }
+
+    @Test
+    void givenNullAndIrrelevantSearchRows_whenResolving_thenRejectsEveryNonCandidate() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("ABC", "NASDAQ", "GB", Currency.GBP))));
+        when(client.search("ABC", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search(null, "US", "USA", "USD"),
+                search("OTHER", "US", "USA", "USD"),
+                search("ABC", null, "USA", "USD"),
+                search("ABC", " ", "USA", "USD"),
+                search("ABC", "UNKNOWN", "USA", "USD"),
+                search("ABC", "US", "USA", "USD"))));
+
+        resolver.resolve("ABC")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.SymbolResolution.class);
+    }
+
+    @Test
+    void givenNullSearchEnvelope_whenResolving_thenFailsAsMissingData() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of()));
+        when(client.search("ABC", API_KEY, "json", null)).thenReturn(Uni.createFrom().nullItem());
+
+        resolver.resolve("ABC")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.MissingData.class);
+    }
+
+    @Test
+    void givenMetadataWithNoOptionalHints_whenResolving_thenExactUniqueResultIsEnough() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("ABC", null, null, null))));
+        when(client.search("ABC", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("ABC", "US", null, null))));
+
+        assertEquals("ABC.US", await(resolver.resolve("ABC")).providerSymbol());
+    }
+
+    @Test
+    void givenCatalogCurrencyFallback_whenMatchingMetadata_thenUsesExchangeCurrency() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("ABC", "US", null, Currency.USD))));
+        when(client.search("ABC", API_KEY, "json", "US")).thenReturn(Uni.createFrom().item(List.of(
+                search("ABC", "US", null, null))));
+
+        assertEquals("USD", await(resolver.resolve("ABC")).rawCurrency());
+    }
+
+    @Test
+    void givenCountryOrCurrencyConflicts_whenResolving_thenFailsWithoutSearch() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("COUNTRY")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("COUNTRY", "US", "US", Currency.USD),
+                new InstrumentListing("COUNTRY", "US", "GB", Currency.USD))));
+        when(listings.findBySymbol("CURRENCY")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("CURRENCY", "US", "US", Currency.USD),
+                new InstrumentListing("CURRENCY", "US", "US", Currency.GBP))));
+
+        assertResolutionFailure(resolver.resolve("COUNTRY"));
+        assertResolutionFailure(resolver.resolve("CURRENCY"));
+        verify(client, never()).search(any(), any(), any(), any());
+    }
+
+    @Test
+    void givenMalformedOrUnknownConfiguredOverride_whenResolving_thenFailsExplicitly() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol(any())).thenReturn(Uni.createFrom().item(List.of()));
+
+        resolver = resolver(Map.of("ABC", "ABC"));
+        assertResolutionFailure(resolver.resolve("ABC"));
+        resolver = resolver(Map.of("ABC", "ABC."));
+        assertResolutionFailure(resolver.resolve("ABC"));
+        resolver = resolver(Map.of("ABC", "ABC.UNKNOWN"));
+        assertResolutionFailure(resolver.resolve("ABC"));
+    }
+
+    @Test
+    void givenInactiveSearchExchange_whenResolvingNewMapping_thenRejectsIt() {
+        EodhdExchange inactive = new EodhdExchange(
+                "US", "USA Stocks", null, "USA", "USD", "US", "USA", false, OffsetDateTime.now());
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(inactive)));
+        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of()));
+        when(client.search("ABC", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("ABC", "US", "USA", "USD"))));
+
+        assertResolutionFailure(resolver.resolve("ABC"));
+    }
+
+    @Test
+    void givenConfigBackedOverride_whenUsingCdiConstructor_thenExtractsOnlyOverrideProperties() {
+        Config config = Mockito.mock(Config.class);
+        when(config.getPropertyNames()).thenReturn(List.of(
+                "application.other", "application.market-data.eodhd.symbol-overrides.abc"));
+        when(config.getOptionalValue("application.market-data.eodhd.symbol-overrides.abc", String.class))
+                .thenReturn(Optional.of("ABC.US"));
+        resolver = new EodhdSymbolResolver(
+                client, catalog, store, listings, currencyResolver, API_KEY,
+                new ReactiveRateLimiter("test", 60_000, Duration.ofMinutes(1)), config);
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of()));
+
+        assertEquals("ABC.US", await(resolver.resolve("ABC")).providerSymbol());
+    }
+
     private EodhdSymbolResolver resolver(Map<String, String> overrides) {
         return new EodhdSymbolResolver(
                 client,
@@ -165,5 +298,11 @@ class EodhdSymbolResolverTest {
 
     private EodhdResolvedSymbol await(Uni<EodhdResolvedSymbol> result) {
         return result.subscribe().withSubscriber(UniAssertSubscriber.create()).awaitItem().getItem();
+    }
+
+    private void assertResolutionFailure(Uni<EodhdResolvedSymbol> result) {
+        result.subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.SymbolResolution.class);
     }
 }

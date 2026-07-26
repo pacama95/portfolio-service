@@ -27,10 +27,55 @@ class EodhdFailureMapperTest {
 
     @Test
     void givenHttpClientError_whenTranslated_thenReturnsSanitizedProviderError() {
-        Throwable result = EodhdFailureMapper.translate(
-                new WebApplicationException(Response.status(401).build()), "AAPL");
+        for (int status : new int[]{400, 401, 403, 404}) {
+            Throwable result = EodhdFailureMapper.translate(
+                    new WebApplicationException(Response.status(status).build()), "AAPL");
 
-        assertInstanceOf(MarketDataProviderError.ErrorResponse.class, result);
+            assertInstanceOf(MarketDataProviderError.ErrorResponse.class, result);
+        }
+    }
+
+    @Test
+    void givenHttpExceptionWithoutResponse_whenTranslated_thenLeavesFailureUntouched() {
+        WebApplicationException failure = org.mockito.Mockito.mock(WebApplicationException.class);
+
+        assertSame(failure, EodhdFailureMapper.translate(failure, "AAPL"));
+    }
+
+    @Test
+    void givenHttpServerError_whenTranslated_thenReturnsUnavailable() {
+        Throwable result = EodhdFailureMapper.translate(
+                new WebApplicationException(Response.status(503).build()), "AAPL");
+
+        assertInstanceOf(MarketDataProviderError.ProviderUnavailable.class, result);
+    }
+
+    @Test
+    void givenUnhandledHttpStatus_whenTranslated_thenLeavesFailureUntouched() {
+        WebApplicationException failure = new WebApplicationException(Response.status(418).build());
+
+        assertSame(failure, EodhdFailureMapper.translate(failure, "AAPL"));
+    }
+
+    @Test
+    void givenMissingInvalidOrNegativeRetryAfter_whenTranslated_thenUsesDefault() {
+        for (String retryAfter : new String[]{null, "tomorrow", "-1"}) {
+            Response.ResponseBuilder response = Response.status(429);
+            if (retryAfter != null) {
+                response.header("Retry-After", retryAfter);
+            }
+            MarketDataProviderError.RateLimited result = assertInstanceOf(
+                    MarketDataProviderError.RateLimited.class,
+                    EodhdFailureMapper.translate(new WebApplicationException(response.build()), "AAPL"));
+            assertEquals(Duration.ofMinutes(1), result.retryAfter());
+        }
+    }
+
+    @Test
+    void givenAlreadyTypedFailure_whenTranslated_thenReturnsSameInstance() {
+        MarketDataProviderError.MissingData failure = new MarketDataProviderError.MissingData("AAPL", "close");
+
+        assertSame(failure, EodhdFailureMapper.translate(failure, "AAPL"));
     }
 
     @Test

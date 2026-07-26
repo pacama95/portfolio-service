@@ -12,6 +12,16 @@ def jacocoExcludes = [
         // Panache session adapters: covered by DBRider integration tests, not isolatable in unit tests
         '**/persistence/adapter/**',
         '**/persistence/repository/**',
+        // EODHD keeps provider-private persistence/DTO types in one adapter package so none of
+        // those provider shapes leak into core. Apply the same category exclusions as above.
+        '**/marketdata/eodhd/EodhdClient*',
+        '**/marketdata/eodhd/Eodhd*Response*',
+        '**/marketdata/eodhd/Eodhd*Entity*',
+        '**/marketdata/eodhd/EodhdReferenceDataStore*',
+        '**/marketdata/eodhd/EodhdExchange.class',
+        '**/marketdata/eodhd/EodhdSymbolMapping.class',
+        '**/marketdata/eodhd/EodhdResolvedSymbol*',
+        '**/marketdata/eodhd/EodhdResolutionSource*',
 ]
 
 test {

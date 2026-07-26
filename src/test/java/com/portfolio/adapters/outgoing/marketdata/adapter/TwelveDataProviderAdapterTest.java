@@ -100,13 +100,27 @@ class TwelveDataProviderAdapterTest {
 
     @Test
     void givenHttpClientError_whenFetchSpotPrice_thenThrowsTypedErrorForFallback() {
-        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().failure(
-                new WebApplicationException(Response.status(401).build())));
+        for (int status : new int[]{400, 401, 403, 404}) {
+            when(client.price("STATUS" + status, API_KEY)).thenReturn(Uni.createFrom().failure(
+                    new WebApplicationException(Response.status(status).build())));
 
-        adapter.fetchSpotPrice("AAPL")
+            adapter.fetchSpotPrice("STATUS" + status)
+                    .subscribe().withSubscriber(UniAssertSubscriber.create())
+                    .awaitFailure()
+                    .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
+        }
+    }
+
+    @Test
+    void givenHttpExceptionWithoutResponse_whenFetchSpotPrice_thenLeavesFailureUntouched() {
+        WebApplicationException failure = Mockito.mock(WebApplicationException.class);
+        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().failure(failure));
+
+        Throwable result = adapter.fetchSpotPrice("AAPL")
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
-                .awaitFailure()
-                .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
+                .awaitFailure().getFailure();
+
+        assertEquals(failure, result);
     }
 
     @Test
@@ -118,6 +132,35 @@ class TwelveDataProviderAdapterTest {
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitFailure()
                 .assertFailedWith(MarketDataProviderError.ProviderUnavailable.class);
+    }
+
+    @Test
+    void givenHttpServerOrRateLimitFailure_whenFetchSpotPrice_thenNormalizesForFallback() {
+        when(client.price("SERVER", API_KEY)).thenReturn(Uni.createFrom().failure(
+                new WebApplicationException(Response.status(503).build())));
+        when(client.price("LIMIT", API_KEY)).thenReturn(Uni.createFrom().failure(
+                new WebApplicationException(Response.status(429).build())));
+
+        adapter.fetchSpotPrice("SERVER")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ProviderUnavailable.class);
+        adapter.fetchSpotPrice("LIMIT")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.RateLimited.class);
+    }
+
+    @Test
+    void givenUnhandledHttpStatus_whenFetchSpotPrice_thenDoesNotMisclassifyIt() {
+        WebApplicationException failure = new WebApplicationException(Response.status(418).build());
+        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().failure(failure));
+
+        Throwable result = adapter.fetchSpotPrice("AAPL")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure().getFailure();
+
+        assertEquals(failure, result);
     }
 
     @Test
@@ -144,6 +187,21 @@ class TwelveDataProviderAdapterTest {
                         .getFailure();
 
         assertEquals(Duration.ofMinutes(1), failure.retryAfter());
+    }
+
+    @Test
+    void givenErrorWithoutMessageAndNonRateLimitCode_whenFetchSpotPrice_thenUsesSafeFallback() throws Exception {
+        when(client.price("AAPL", API_KEY)).thenReturn(Uni.createFrom().item(
+                price("{\"code\":400,\"status\":\"error\"}")));
+
+        MarketDataProviderError.ErrorResponse failure = (MarketDataProviderError.ErrorResponse)
+                adapter.fetchSpotPrice("AAPL")
+                        .subscribe().withSubscriber(UniAssertSubscriber.create())
+                        .awaitFailure()
+                        .assertFailedWith(MarketDataProviderError.ErrorResponse.class)
+                        .getFailure();
+
+        assertTrue(failure.getMessage().contains("unknown"));
     }
 
     @Test

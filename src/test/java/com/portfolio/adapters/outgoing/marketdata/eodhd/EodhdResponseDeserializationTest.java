@@ -9,6 +9,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class EodhdResponseDeserializationTest {
 
@@ -52,5 +53,15 @@ class EodhdResponseDeserializationTest {
                 "{\"close\":\"not-a-number\"}", EodhdRealTimeResponse.class);
 
         assertNull(response.close());
+    }
+
+    @Test
+    void givenNullAndUnexpectedDecimalTokens_whenDeserialized_thenHandlesThemDefensively() throws Exception {
+        EodhdRealTimeResponse nullValue = objectMapper.readValue("{\"close\":null}", EodhdRealTimeResponse.class);
+
+        assertNull(nullValue.close());
+        assertThrows(
+                Exception.class,
+                () -> objectMapper.readValue("{\"close\":{\"unexpected\":true}}", EodhdRealTimeResponse.class));
     }
 }

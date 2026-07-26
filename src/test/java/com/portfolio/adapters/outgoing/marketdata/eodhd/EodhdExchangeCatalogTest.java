@@ -75,6 +75,23 @@ class EodhdExchangeCatalogTest {
     }
 
     @Test
+    void givenPersistedCatalogWithoutFetchTimestamp_whenLoaded_thenRefreshesIt() {
+        when(store.findExchanges()).thenReturn(Uni.createFrom().item(List.of(exchange(
+                "OLD", OffsetDateTime.now().minusDays(2)))));
+        when(store.findLatestExchangeFetchTime()).thenReturn(Uni.createFrom().item(Optional.empty()));
+        when(client.exchanges(API_KEY, "json")).thenReturn(Uni.createFrom().item(List.of(
+                new EodhdExchangeResponse("USA Stocks", "US", " ", null, "USD", "", "USA"))));
+        when(store.replaceExchanges(any(), any())).thenReturn(Uni.createFrom().voidItem());
+
+        EodhdExchange result = await(catalog.exchanges()).getFirst();
+
+        assertEquals("US", result.code());
+        assertEquals(null, result.operatingMic());
+        assertEquals(null, result.country());
+        assertEquals(null, result.countryIso2());
+    }
+
+    @Test
     void givenStaleCatalog_whenRefreshIsEmpty_thenKeepsLastGoodSnapshot() {
         List<EodhdExchange> stale = List.of(exchange("US", OffsetDateTime.now().minusDays(2)));
         when(store.findExchanges()).thenReturn(Uni.createFrom().item(stale));
@@ -119,11 +136,60 @@ class EodhdExchangeCatalogTest {
         verify(client).exchanges(API_KEY, "json");
     }
 
+    @Test
+    void givenExchangeWithoutCodeOrName_whenRefreshingWithoutStaleData_thenFailsTyped() {
+        when(store.findExchanges()).thenReturn(Uni.createFrom().item(List.of()));
+        when(store.findLatestExchangeFetchTime()).thenReturn(Uni.createFrom().item(Optional.empty()));
+        when(client.exchanges(API_KEY, "json"))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new EodhdExchangeResponse("USA", null, null, null, null, null, null))))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new EodhdExchangeResponse(" ", "US", null, null, null, null, null))));
+
+        assertCatalogMissing(catalog.exchanges());
+        assertCatalogMissing(catalog.exchanges());
+    }
+
+    @Test
+    void givenUnexpectedRefreshFailureWithoutStaleData_thenReturnsTypedUnavailable() {
+        when(store.findExchanges()).thenReturn(Uni.createFrom().item(List.of()));
+        when(store.findLatestExchangeFetchTime()).thenReturn(Uni.createFrom().item(Optional.empty()));
+        when(client.exchanges(API_KEY, "json"))
+                .thenReturn(Uni.createFrom().failure(new IllegalStateException("unexpected")));
+
+        catalog.exchanges()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ProviderUnavailable.class);
+    }
+
+    @Test
+    void givenSaturatedCatalogLimiter_whenRefreshing_thenFailsBeforeProviderCall() {
+        ReactiveRateLimiter limiter = new ReactiveRateLimiter("test", 1, Duration.ZERO);
+        limiter.acquire().subscribe().withSubscriber(UniAssertSubscriber.create()).awaitItem();
+        catalog = new EodhdExchangeCatalog(client, store, API_KEY, limiter, Duration.ofHours(24));
+        when(store.findExchanges()).thenReturn(Uni.createFrom().item(List.of()));
+        when(store.findLatestExchangeFetchTime()).thenReturn(Uni.createFrom().item(Optional.empty()));
+
+        catalog.exchanges()
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.RateLimited.class);
+
+        verify(client, never()).exchanges(any(), any());
+    }
+
     private EodhdExchange exchange(String code, OffsetDateTime fetchedAt) {
         return new EodhdExchange(code, code + " Exchange", null, null, "USD", null, null, true, fetchedAt);
     }
 
     private List<EodhdExchange> await(Uni<List<EodhdExchange>> result) {
         return result.subscribe().withSubscriber(UniAssertSubscriber.create()).awaitItem().getItem();
+    }
+
+    private void assertCatalogMissing(Uni<List<EodhdExchange>> result) {
+        result.subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.MissingData.class);
     }
 }

@@ -11,12 +11,14 @@ import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.eclipse.microprofile.config.Config;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
@@ -51,6 +53,30 @@ class EodhdProviderAdapterTest {
 
     @Test
     void givenMinorUnitExchangeOverride_whenFetchingSpot_thenNormalizesToMajorCurrency() {
+        when(resolver.resolve("BARC")).thenReturn(Uni.createFrom().item(
+                new EodhdResolvedSymbol("BARC", "BARC.LSE", "LSE", "GBP")));
+        when(client.realTime("BARC.LSE", API_KEY, "json"))
+                .thenReturn(Uni.createFrom().item(new EodhdRealTimeResponse(
+                        "BARC.LSE", 1L, new BigDecimal("123.45"))));
+
+        assertEquals(new BigDecimal("1.2345"), await(adapter.fetchSpotPrice("BARC")));
+    }
+
+    @Test
+    void givenConfiguredCurrencyOverrides_whenConstructingInjectedAdapter_thenExtractsOnlyPresentEodhdValues() {
+        Config config = Mockito.mock(Config.class);
+        String prefix = "application.market-data.eodhd.exchange-price-currency-overrides.";
+        when(config.getPropertyNames()).thenReturn(List.of(
+                "unrelated.property", prefix + "lse", prefix + "missing"));
+        when(config.getOptionalValue(prefix + "lse", String.class)).thenReturn(Optional.of("GBX"));
+        when(config.getOptionalValue(prefix + "missing", String.class)).thenReturn(Optional.empty());
+        adapter = new EodhdProviderAdapter(
+                client,
+                resolver,
+                currencyResolver,
+                API_KEY,
+                new ReactiveRateLimiter("test", 60_000, Duration.ofMinutes(1)),
+                config);
         when(resolver.resolve("BARC")).thenReturn(Uni.createFrom().item(
                 new EodhdResolvedSymbol("BARC", "BARC.LSE", "LSE", "GBP")));
         when(client.realTime("BARC.LSE", API_KEY, "json"))
@@ -118,6 +144,74 @@ class EodhdProviderAdapterTest {
 
         adapter.fetchSpotPrice("AAPL")
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.MissingData.class);
+    }
+
+    @Test
+    void givenNullOrMissingPriceHistoryFields_whenFetching_thenFailsTyped() {
+        when(resolver.resolve("AAPL")).thenReturn(Uni.createFrom().item(
+                new EodhdResolvedSymbol("AAPL", "AAPL.US", "US", "USD")));
+        when(client.eod("AAPL.US", API_KEY, "json", "2024-01-01", "2024-01-01", "d", "a"))
+                .thenReturn(Uni.createFrom().nullItem())
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new EodhdEodBarResponse("2024-01-01", null, null))));
+
+        assertMissing(adapter.fetchPriceHistory(
+                "AAPL", LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)));
+        assertMissing(adapter.fetchPriceHistory(
+                "AAPL", LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)));
+    }
+
+    @Test
+    void givenNullInvalidOrBlankBarDate_whenFetchingHistory_thenFailsTyped() {
+        when(resolver.resolve("AAPL")).thenReturn(Uni.createFrom().item(
+                new EodhdResolvedSymbol("AAPL", "AAPL.US", "US", "USD")));
+        when(client.eod("AAPL.US", API_KEY, "json", "2024-01-01", "2024-01-01", "d", "a"))
+                .thenReturn(Uni.createFrom().item(java.util.Arrays.asList(
+                        (EodhdEodBarResponse) null)))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new EodhdEodBarResponse("bad-date", BigDecimal.ONE, null))))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new EodhdEodBarResponse(" ", BigDecimal.ONE, null))));
+
+        assertMissing(adapter.fetchPriceHistory(
+                "AAPL", LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)));
+        assertMissing(adapter.fetchPriceHistory(
+                "AAPL", LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)));
+        assertMissing(adapter.fetchPriceHistory(
+                "AAPL", LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)));
+    }
+
+    @Test
+    void givenNullOrMissingFxHistoryFields_whenFetching_thenFailsTyped() {
+        when(client.eod("EURUSD.FOREX", API_KEY, "json", "2024-01-01", "2024-01-01", "d", "a"))
+                .thenReturn(Uni.createFrom().nullItem())
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new EodhdEodBarResponse("2024-01-01", null, null))));
+
+        assertMissing(adapter.fetchFxHistory(
+                Currency.EUR, Currency.USD, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)));
+        assertMissing(adapter.fetchFxHistory(
+                Currency.EUR, Currency.USD, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1)));
+    }
+
+    @Test
+    void givenMissingOrUnsupportedEquityCurrency_whenFetching_thenFailsTyped() {
+        when(resolver.resolve("MISSING")).thenReturn(Uni.createFrom().item(
+                new EodhdResolvedSymbol("MISSING", "MISSING.US", "US", null)));
+        when(resolver.resolve("UNKNOWN")).thenReturn(Uni.createFrom().item(
+                new EodhdResolvedSymbol("UNKNOWN", "UNKNOWN.US", "US", "ZZZ")));
+
+        assertMissing(adapter.fetchSpotPrice("MISSING"));
+        adapter.fetchSpotPrice("UNKNOWN")
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.UnsupportedCurrency.class);
+    }
+
+    private void assertMissing(Uni<?> result) {
+        result.subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitFailure()
                 .assertFailedWith(MarketDataProviderError.MissingData.class);
     }
