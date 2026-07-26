@@ -19,6 +19,7 @@ public class IntegrationTestProfile implements QuarkusTestProfile {
                 Map.entry("quarkus.http.test-port", "18087"),
                 Map.entry("quarkus.http.test-host", "localhost"),
                 Map.entry("application.market-data.twelve-data.api-key", "test-api-key"),
+                Map.entry("application.market-data.eodhd.api-key", "test-eodhd-api-key"),
                 Map.entry("application.portfolio.base-currency", "USD"),
                 Map.entry("application.market-data.spot-price-freshness", "PT15M"),
                 Map.entry("application.market-data.fx-freshness", "PT1H"),

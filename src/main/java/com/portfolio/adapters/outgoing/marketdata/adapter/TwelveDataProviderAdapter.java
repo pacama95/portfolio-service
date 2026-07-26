@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 @ApplicationScoped
+@MarketDataProviderAdapter("twelvedata")
 public class TwelveDataProviderAdapter implements MarketDataProviderPort {
 
     private static final Logger LOG = Logger.getLogger(TwelveDataProviderAdapter.class);

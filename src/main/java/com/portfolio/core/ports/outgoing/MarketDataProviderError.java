@@ -1,6 +1,7 @@
 package com.portfolio.core.ports.outgoing;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * Rollback-worthy failures from {@link MarketDataProviderPort}. These must fail the {@code Uni}
@@ -42,6 +43,13 @@ public sealed interface MarketDataProviderError {
     final class SymbolResolution extends ProviderException {
         public SymbolResolution(String symbol, String reason) {
             super("Unable to resolve market data symbol '" + symbol + "': " + reason);
+        }
+    }
+
+    final class AllProvidersFailed extends ProviderException {
+        public AllProvidersFailed(String symbol, List<? extends ProviderException> failures) {
+            super("Every configured market data provider failed for " + symbol);
+            failures.forEach(this::addSuppressed);
         }
     }
 
