@@ -163,6 +163,10 @@ ticker. The adapter resolves it deterministically:
 4. Ambiguous or conflicting listings fail explicitly. The adapter never picks the first result or
    treats an input dot (for example `BRK.B`) as an EODHD exchange suffix.
 
+Country matching accepts ISO alpha-2, ISO alpha-3, and English country names, but canonicalizes
+them only inside the EODHD adapter. Thus transaction metadata such as `United States` matches
+EODHD's `USA`/`US` catalog values without introducing provider naming into the domain.
+
 `eodhd_exchanges` persists the `Code` values returned by EODHD's Exchanges List API.
 `eodhd_symbol_mappings` persists canonical-to-qualified mappings. The catalog is loaded lazily,
 refreshed after 24 hours, coalesced across concurrent callers, and retains the last good snapshot
@@ -202,6 +206,14 @@ avoiding EODHD entitlement failures for an unused chart prefix—for example, a 
 2024 whose first purchase is in 2026 does not ask EODHD for 2024 prices.
 The default `application.portfolio.max-query-range-days=5500` accepts the frontend's 15-year
 “All” envelope; this is only the response range, not automatically the provider-fetch range.
+
+`GET /api/positions/ticker/{ticker}` requires a real market price. It no longer turns a typed
+provider failure into HTTP 200 with a missing price and computed zero valuation. A direct unresolved
+canonical symbol (for example with EODHD as the sole provider) returns a sanitized
+`422 MARKET_SYMBOL_UNRESOLVED`; exhausted multi-provider chains return the existing sanitized 503
+response, and rate limits retain `Retry-After`. The separate
+`/exists` endpoint skips market-price enrichment, so availability checks do not depend on an
+external provider. Collection and portfolio-summary reads retain their partial-data behavior.
 
 ```mermaid
 sequenceDiagram

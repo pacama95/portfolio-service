@@ -213,6 +213,11 @@ missing data. Invalid nonnumeric text must not silently become zero.
 The port supplies only a canonical ticker, while EODHD requires an exchange-qualified symbol.
 The adapter therefore owns both resolution and its provider-specific persistence.
 
+Country hints are normalized inside this adapter before comparison. ISO alpha-2, ISO alpha-3, and
+English display names share one internal identifier, so values such as `US`, `USA`, and
+`United States` are equivalent. Equivalent representations across multiple transactions are not a
+metadata conflict. No normalized EODHD or country identifier is returned through a domain port.
+
 ### 6.1 Interaction and decision flow
 
 ```mermaid
