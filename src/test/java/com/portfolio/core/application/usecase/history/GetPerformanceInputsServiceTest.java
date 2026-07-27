@@ -43,7 +43,7 @@ class GetPerformanceInputsServiceTest {
     @BeforeEach
     void setUp() {
         service = new GetPerformanceInputsService(
-                valuationHistoryUseCase, capitalFlowsUseCase, marketDataPort, "USD", 3650);
+                valuationHistoryUseCase, capitalFlowsUseCase, marketDataPort, "USD", 5500);
     }
 
     @Test

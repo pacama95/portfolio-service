@@ -33,7 +33,7 @@ class GetCapitalFlowsServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GetCapitalFlowsService(transactionRepository, 3650);
+        service = new GetCapitalFlowsService(transactionRepository, 5500);
     }
 
     @Test

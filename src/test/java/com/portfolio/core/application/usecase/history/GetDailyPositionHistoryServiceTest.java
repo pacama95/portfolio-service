@@ -36,7 +36,7 @@ class GetDailyPositionHistoryServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GetDailyPositionHistoryService(transactionRepository, 3650);
+        service = new GetDailyPositionHistoryService(transactionRepository, 5500);
     }
 
     @Test

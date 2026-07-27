@@ -20,7 +20,7 @@ public class GetCapitalFlowsService implements GetCapitalFlowsUseCase {
 
     public GetCapitalFlowsService(
             TransactionRepository transactionRepository,
-            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "3650")
+            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "5500")
             long maxRangeDays) {
         this.transactionRepository = transactionRepository;
         this.maxRangeDays = maxRangeDays;

@@ -48,7 +48,7 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
             MarketDataPort marketDataPort,
             @ConfigProperty(name = "application.portfolio.base-currency", defaultValue = "USD")
             String baseCurrency,
-            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "3650")
+            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "5500")
             long maxRangeDays) {
         this.transactionRepository = transactionRepository;
         this.marketDataPort = marketDataPort;

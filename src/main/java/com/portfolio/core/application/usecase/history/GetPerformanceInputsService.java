@@ -45,7 +45,7 @@ public class GetPerformanceInputsService implements GetPerformanceInputsUseCase 
             MarketDataPort marketDataPort,
             @ConfigProperty(name = "application.portfolio.base-currency", defaultValue = "USD")
             String baseCurrency,
-            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "3650")
+            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "5500")
             long maxRangeDays) {
         this.valuationHistoryUseCase = valuationHistoryUseCase;
         this.capitalFlowsUseCase = capitalFlowsUseCase;

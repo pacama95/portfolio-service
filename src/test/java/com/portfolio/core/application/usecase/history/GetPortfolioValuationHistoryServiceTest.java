@@ -41,7 +41,7 @@ class GetPortfolioValuationHistoryServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GetPortfolioValuationHistoryService(transactionRepository, marketDataPort, "USD", 3650);
+        service = new GetPortfolioValuationHistoryService(transactionRepository, marketDataPort, "USD", 5500);
     }
 
     @Test
@@ -199,7 +199,7 @@ class GetPortfolioValuationHistoryServiceTest {
 
     @Test
     void givenRangeStartsBeforeFirstHolding_whenExecute_thenFetchStartsAtHoldingWindow() {
-        LocalDate rangeFrom = LocalDate.of(2024, 1, 1);
+        LocalDate rangeFrom = LocalDate.of(2011, 7, 20);
         LocalDate purchaseDate = LocalDate.of(2026, 7, 10);
         LocalDate rangeTo = LocalDate.of(2026, 7, 20);
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(

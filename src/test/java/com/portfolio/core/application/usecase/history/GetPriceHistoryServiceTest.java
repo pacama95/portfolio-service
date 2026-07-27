@@ -31,7 +31,7 @@ class GetPriceHistoryServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GetPriceHistoryService(marketDataPort, 3650);
+        service = new GetPriceHistoryService(marketDataPort, 5500);
     }
 
     @Test

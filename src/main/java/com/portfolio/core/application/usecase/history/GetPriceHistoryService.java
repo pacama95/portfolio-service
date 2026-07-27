@@ -22,7 +22,7 @@ public class GetPriceHistoryService implements GetPriceHistoryUseCase {
 
     public GetPriceHistoryService(
             MarketDataPort marketDataPort,
-            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "3650")
+            @ConfigProperty(name = "application.portfolio.max-query-range-days", defaultValue = "5500")
             long maxRangeDays) {
         this.marketDataPort = marketDataPort;
         this.maxRangeDays = maxRangeDays;
