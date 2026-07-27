@@ -36,12 +36,10 @@ public class GetPositionByTickerService implements GetPositionByTickerUseCase {
                     if (!(replay instanceof LedgerReplay.ApplyResult.Success success)) {
                         return Uni.createFrom().item(new Result.NotFound(ticker));
                     }
+                    if (!query.includeMarketPrice()) {
+                        return Uni.createFrom().item(new Result.Success(success.state().toPosition(ticker, null)));
+                    }
                     return marketDataPort.getSpotPrice(ticker)
-                            .onFailure().recoverWithItem(failure -> {
-                                LOG.warnf(failure, "Spot price unavailable ticker=%s; continuing without price",
-                                        ticker);
-                                return null;
-                            })
                             .invoke(price -> LOG.infof("Found position ticker=%s hasPrice=%s", ticker, price != null))
                             .map(price -> new Result.Success(success.state().toPosition(ticker, price)));
                 });

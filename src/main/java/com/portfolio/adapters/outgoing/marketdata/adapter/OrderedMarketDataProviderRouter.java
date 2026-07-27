@@ -131,8 +131,10 @@ public class OrderedMarketDataProviderRouter implements MarketDataProviderPort, 
                     MarketDataProviderError.ProviderException typed =
                             (MarketDataProviderError.ProviderException) failure;
                     failures.add(typed);
-                    LOG.warnf("Market data provider failed provider=%s symbol=%s category=%s; trying fallback",
-                            selected.id(), symbol, failure.getClass().getSimpleName());
+                    boolean hasFallback = index + 1 < providers.size();
+                    LOG.warnf("Market data provider failed provider=%s symbol=%s category=%s; %s",
+                            selected.id(), symbol, failure.getClass().getSimpleName(),
+                            hasFallback ? "trying fallback" : "no fallback configured");
                     return attempt(symbol, operation, index + 1, failures);
                 });
     }

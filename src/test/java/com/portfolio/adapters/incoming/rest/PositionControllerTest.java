@@ -150,7 +150,8 @@ class PositionControllerTest {
     void givenExistingPosition_whenExists_thenReturnsTrue() {
         Position position = samplePosition();
 
-        when(getPositionByTickerUseCase.execute(new GetPositionByTickerUseCase.Query(USER_ID, "AAPL")))
+        when(getPositionByTickerUseCase.execute(
+                GetPositionByTickerUseCase.Query.withoutMarketPrice(USER_ID, "AAPL")))
                 .thenReturn(Uni.createFrom().item(new GetPositionByTickerUseCase.Result.Success(position)));
 
         Boolean exists = controller.exists("AAPL")
@@ -163,7 +164,8 @@ class PositionControllerTest {
 
     @Test
     void givenMissingPosition_whenExists_thenReturnsFalse() {
-        when(getPositionByTickerUseCase.execute(new GetPositionByTickerUseCase.Query(USER_ID, "MSFT")))
+        when(getPositionByTickerUseCase.execute(
+                GetPositionByTickerUseCase.Query.withoutMarketPrice(USER_ID, "MSFT")))
                 .thenReturn(Uni.createFrom().item(new GetPositionByTickerUseCase.Result.NotFound("MSFT")));
 
         Boolean exists = controller.exists("MSFT")

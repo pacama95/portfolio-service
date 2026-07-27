@@ -107,7 +107,7 @@ public class PositionController {
     @Operation(summary = "Check whether a position exists for ticker")
     public Uni<Boolean> exists(@PathParam("ticker") String ticker) {
         return getPositionByTickerUseCase.execute(
-                        new GetPositionByTickerUseCase.Query(userContext.requireUserId(), ticker))
+                        GetPositionByTickerUseCase.Query.withoutMarketPrice(userContext.requireUserId(), ticker))
                 .map(result -> result instanceof GetPositionByTickerUseCase.Result.Success);
     }
 

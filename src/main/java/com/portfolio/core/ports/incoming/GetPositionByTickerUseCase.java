@@ -13,6 +13,14 @@ public interface GetPositionByTickerUseCase {
         record NotFound(String ticker) implements Result {}
     }
 
-    record Query(UserId userId, String ticker) {
+    record Query(UserId userId, String ticker, boolean includeMarketPrice) {
+
+        public Query(UserId userId, String ticker) {
+            this(userId, ticker, true);
+        }
+
+        public static Query withoutMarketPrice(UserId userId, String ticker) {
+            return new Query(userId, ticker, false);
+        }
     }
 }

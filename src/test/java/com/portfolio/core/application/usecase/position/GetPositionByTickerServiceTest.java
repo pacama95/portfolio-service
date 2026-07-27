@@ -8,6 +8,7 @@ import com.portfolio.core.model.TransactionType;
 import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.GetPositionByTickerUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
+import com.portfolio.core.ports.outgoing.MarketDataProviderError;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
@@ -24,6 +25,8 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class GetPositionByTickerServiceTest {
@@ -109,15 +112,29 @@ class GetPositionByTickerServiceTest {
     }
 
     @Test
-    void givenSpotPriceFailure_whenExecute_thenNullLatestMarketPrice() {
+    void givenSpotPriceFailure_whenExecute_thenPropagatesTypedFailure() {
         List<Transaction> txs = List.of(
                 tx("AAPL", TransactionType.BUY, "10", "100", LocalDate.of(2024, 1, 1)));
         when(transactionRepository.findByTicker(USER, "AAPL")).thenReturn(Uni.createFrom().item(txs));
         when(marketDataPort.getSpotPrice("AAPL"))
-                .thenReturn(Uni.createFrom().failure(new RuntimeException("spot unavailable")));
+                .thenReturn(Uni.createFrom().failure(
+                        new MarketDataProviderError.SymbolResolution("AAPL", "no exact result")));
+
+        service.execute(
+                new GetPositionByTickerUseCase.Query(USER, "AAPL"))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.SymbolResolution.class);
+    }
+
+    @Test
+    void givenPriceNotRequested_whenExecute_thenReturnsPositionWithoutCallingMarketData() {
+        List<Transaction> txs = List.of(
+                tx("AAPL", TransactionType.BUY, "10", "100", LocalDate.of(2024, 1, 1)));
+        when(transactionRepository.findByTicker(USER, "AAPL")).thenReturn(Uni.createFrom().item(txs));
 
         GetPositionByTickerUseCase.Result result = service.execute(
-                new GetPositionByTickerUseCase.Query(USER, "AAPL"))
+                GetPositionByTickerUseCase.Query.withoutMarketPrice(USER, "AAPL"))
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitItem()
                 .getItem();
@@ -125,6 +142,7 @@ class GetPositionByTickerServiceTest {
         GetPositionByTickerUseCase.Result.Success success =
                 assertInstanceOf(GetPositionByTickerUseCase.Result.Success.class, result);
         assertNull(success.position().latestMarketPrice());
+        verify(marketDataPort, never()).getSpotPrice("AAPL");
     }
 
     private static Transaction tx(
