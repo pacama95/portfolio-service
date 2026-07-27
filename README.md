@@ -193,6 +193,39 @@ try the next provider and, critically, so the application never records the unav
 covered. With EODHD as the only provider, portfolio history older than the subscription permits
 requires a plan with deeper history (or data that was already persisted locally).
 
+Portfolio valuation does not equate the requested chart range with the required provider range.
+For each ticker it finds the first day on which shares are actually held inside the query, then
+requests prices from five days before that day through `to`. It aggregates the same boundary per
+foreign currency and requests FX from seven days before first exposure. Positions already closed
+before `from` cause no provider request. This keeps the application port provider-neutral while
+avoiding EODHD entitlement failures for an unused chart prefix—for example, a chart starting in
+2024 whose first purchase is in 2026 does not ask EODHD for 2024 prices.
+
+```mermaid
+sequenceDiagram
+    actor UI as Portfolio chart
+    participant Valuation as Valuation use case
+    participant Ledger as Ledger replay
+    participant Market as MarketDataPort
+    participant Router as Provider router
+    participant EOD as EODHD adapter
+
+    UI->>Valuation: History from chartFrom to chartTo
+    Valuation->>Ledger: Replay transactions through chartTo
+    Ledger-->>Valuation: Position snapshots
+    Valuation->>Valuation: Find first held date per ticker/currency
+    alt Position active within chart range
+        Valuation->>Market: Canonical history from firstHeld-buffer to chartTo
+        Market->>Router: Provider-neutral operation
+        Router->>EOD: Same operation with canonical symbol
+        EOD->>EOD: Resolve AAPL to AAPL.US
+        EOD-->>Valuation: Canonical domain history
+    else Position never active within chart range
+        Valuation->>Valuation: Skip market-data request
+    end
+    Valuation-->>UI: Daily valuations for active holding days
+```
+
 The complete API research, invariants, failure matrix, persistence model, and rollout checklist are
 in [`EODHD_PROVIDER_PLAN.md`](EODHD_PROVIDER_PLAN.md). The implementation follows EODHD's official
 [OpenAPI reference](https://eodhistoricaldata.github.io/EODHD-openapi/redoc.html),

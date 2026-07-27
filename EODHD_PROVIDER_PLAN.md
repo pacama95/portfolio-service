@@ -101,6 +101,14 @@ continues to key equity data by the canonical symbol.
   resolver without exposing transaction persistence or EODHD types.
 - **`MarketDataStorePort`** accepts provider provenance on writes.
 
+Portfolio valuation and performance use cases narrow their provider-neutral history calls to the
+period in which data is actually required. Price history starts at the first day a ticker is held
+inside the requested range (with the five-day staleness lookback); FX starts at the first exposure
+or capital-flow date for each foreign currency (with the seven-day lookback). They do not pass an
+unused pre-transaction chart prefix to any provider. This rule belongs to application orchestration,
+not the EODHD adapter: every provider receives the same minimal `MarketDataPort` inputs, while the
+EODHD adapter remains solely responsible for qualification, transport, and response semantics.
+
 Provider implementations use a real CDI qualifier such as
 `@MarketDataProviderAdapter("eodhd")`; `@Named` alone is not sufficient because it does not remove
 CDI's `@Default` qualifier. Only the router is the default provider coordinator injected into the
