@@ -19,12 +19,11 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -84,7 +83,7 @@ public class GetPerformanceInputsService implements GetPerformanceInputsUseCase 
                                         ((GetPortfolioValuationHistoryUseCase.Result.Success) valuationResult)
                                                 .valuations();
                                 var flows = ((GetCapitalFlowsUseCase.Result.Success) flowsResult).flows();
-                                return convertFlowsToBaseCurrency(flows, query.from(), query.to())
+                                return convertFlowsToBaseCurrency(flows, query.to())
                                         .map(convertedFlows -> {
                                             int incomplete = (int) valuations.stream()
                                                     .filter(v -> !v.complete()).count();
@@ -99,24 +98,28 @@ public class GetPerformanceInputsService implements GetPerformanceInputsUseCase 
     }
 
     private Uni<List<CapitalFlowEntry>> convertFlowsToBaseCurrency(
-            List<CapitalFlowEntry> flows, LocalDate from, LocalDate to) {
-        Set<Currency> foreignCurrencies = flows.stream()
-                .map(CapitalFlowEntry::currency)
-                .filter(currency -> currency != null && currency != baseCurrency)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        if (foreignCurrencies.isEmpty()) {
+            List<CapitalFlowEntry> flows, LocalDate to) {
+        Map<Currency, LocalDate> foreignCurrencyStarts = flows.stream()
+                .filter(flow -> flow.currency() != null && flow.currency() != baseCurrency)
+                .collect(Collectors.toMap(
+                        CapitalFlowEntry::currency,
+                        CapitalFlowEntry::flowDate,
+                        GetPerformanceInputsService::earlier,
+                        LinkedHashMap::new));
+        if (foreignCurrencyStarts.isEmpty()) {
             return Uni.createFrom().item(flows);
         }
-        return loadFxRates(foreignCurrencies, from, to)
+        return loadFxRates(foreignCurrencyStarts, to)
                 .map(fxMap -> flows.stream().map(flow -> convert(flow, fxMap)).toList());
     }
 
     private Uni<Map<Currency, NavigableMap<LocalDate, BigDecimal>>> loadFxRates(
-            Set<Currency> foreignCurrencies, LocalDate from, LocalDate to) {
+            Map<Currency, LocalDate> foreignCurrencyStarts, LocalDate to) {
         Uni<Map<Currency, NavigableMap<LocalDate, BigDecimal>>> fxUni =
                 Uni.createFrom().item(new HashMap<>());
-        LocalDate fxFrom = from.minusDays(7);
-        for (Currency currency : foreignCurrencies) {
+        for (Map.Entry<Currency, LocalDate> currencyWindow : foreignCurrencyStarts.entrySet()) {
+            Currency currency = currencyWindow.getKey();
+            LocalDate fxFrom = currencyWindow.getValue().minusDays(7);
             fxUni = fxUni.flatMap(map -> marketDataPort.getFxHistory(currency, baseCurrency, fxFrom, to)
                     .map(entries -> {
                         NavigableMap<LocalDate, BigDecimal> series = new TreeMap<>();
@@ -128,6 +131,10 @@ public class GetPerformanceInputsService implements GetPerformanceInputsUseCase 
                     }));
         }
         return fxUni;
+    }
+
+    private static LocalDate earlier(LocalDate left, LocalDate right) {
+        return left.isBefore(right) ? left : right;
     }
 
     private CapitalFlowEntry convert(

@@ -25,6 +25,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class GetPerformanceInputsServiceTest {
@@ -221,7 +222,7 @@ class GetPerformanceInputsServiceTest {
                 .thenReturn(Uni.createFrom().item(new GetPortfolioValuationHistoryUseCase.Result.Success(valuations)));
         when(capitalFlowsUseCase.execute(any(GetCapitalFlowsUseCase.Query.class)))
                 .thenReturn(Uni.createFrom().item(new GetCapitalFlowsUseCase.Result.Success(flows)));
-        when(marketDataPort.getFxHistory(Currency.EUR, Currency.USD, FROM.minusDays(7), TO))
+        when(marketDataPort.getFxHistory(Currency.EUR, Currency.USD, flowDate.minusDays(7), TO))
                 .thenReturn(Uni.createFrom().item(List.of(
                         new FxRateEntry(Currency.EUR, Currency.USD, flowDate, new BigDecimal("1.10"), OffsetDateTime.now()))));
 
@@ -236,6 +237,7 @@ class GetPerformanceInputsServiceTest {
         CapitalFlowEntry converted = success.inputs().capitalFlows().getFirst();
         assertEquals(Currency.USD, converted.currency());
         assertEquals(0, new BigDecimal("-1100.000000").compareTo(converted.amount()));
+        verify(marketDataPort).getFxHistory(Currency.EUR, Currency.USD, flowDate.minusDays(7), TO);
     }
 
     private static DailyValuation valuation(LocalDate date, boolean complete) {

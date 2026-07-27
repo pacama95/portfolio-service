@@ -27,6 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class GetPortfolioValuationHistoryServiceTest {
@@ -181,12 +183,6 @@ class GetPortfolioValuationHistoryServiceTest {
         when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
                 tx("AAPL", TransactionType.BUY, "10", "100", LocalDate.of(2024, 1, 1)),
                 tx("AAPL", TransactionType.SELL, "10", "110", LocalDate.of(2024, 1, 2)))));
-        when(marketDataPort.getPriceHistory("AAPL", LocalDate.of(2023, 12, 29), LocalDate.of(2024, 1, 5)))
-                .thenReturn(Uni.createFrom().item(List.of(
-                        price("AAPL", LocalDate.of(2024, 1, 3), "120"),
-                        price("AAPL", LocalDate.of(2024, 1, 4), "121"),
-                        price("AAPL", LocalDate.of(2024, 1, 5), "122"))));
-
         GetPortfolioValuationHistoryUseCase.Result result = service.execute(
                 new GetPortfolioValuationHistoryUseCase.Query(
                         USER, LocalDate.of(2024, 1, 3), LocalDate.of(2024, 1, 5)))
@@ -197,6 +193,61 @@ class GetPortfolioValuationHistoryServiceTest {
         GetPortfolioValuationHistoryUseCase.Result.Success success =
                 assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
         assertTrue(success.valuations().isEmpty());
+        verify(marketDataPort, never()).getPriceHistory(
+                Mockito.anyString(), Mockito.any(LocalDate.class), Mockito.any(LocalDate.class));
+    }
+
+    @Test
+    void givenRangeStartsBeforeFirstHolding_whenExecute_thenFetchStartsAtHoldingWindow() {
+        LocalDate rangeFrom = LocalDate.of(2024, 1, 1);
+        LocalDate purchaseDate = LocalDate.of(2026, 7, 10);
+        LocalDate rangeTo = LocalDate.of(2026, 7, 20);
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
+                tx("AAPL", TransactionType.BUY, "10", "100", purchaseDate))));
+        when(marketDataPort.getPriceHistory("AAPL", purchaseDate.minusDays(5), rangeTo))
+                .thenReturn(Uni.createFrom().item(List.of(price("AAPL", purchaseDate, "110"))));
+
+        GetPortfolioValuationHistoryUseCase.Result result = service.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(USER, rangeFrom, rangeTo))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetPortfolioValuationHistoryUseCase.Result.Success success =
+                assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
+        assertEquals(purchaseDate, success.valuations().getFirst().date());
+        verify(marketDataPort).getPriceHistory("AAPL", purchaseDate.minusDays(5), rangeTo);
+    }
+
+    @Test
+    void givenForeignHoldingStartsAfterRangeStart_whenExecute_thenFxStartsAtHoldingWindow() {
+        LocalDate rangeFrom = LocalDate.of(2024, 1, 1);
+        LocalDate purchaseDate = LocalDate.of(2026, 7, 10);
+        LocalDate rangeTo = LocalDate.of(2026, 7, 20);
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
+                tx("ASML", TransactionType.BUY, "10", "100", purchaseDate, Currency.EUR))));
+        when(marketDataPort.getPriceHistory("ASML", purchaseDate.minusDays(5), rangeTo))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new PriceHistoryEntry(
+                                "ASML", purchaseDate, new BigDecimal("110"), null,
+                                Currency.EUR, OffsetDateTime.now()))));
+        when(marketDataPort.getFxHistory(Currency.EUR, Currency.USD, purchaseDate.minusDays(7), rangeTo))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new FxRateEntry(
+                                Currency.EUR, Currency.USD, purchaseDate,
+                                new BigDecimal("1.10"), OffsetDateTime.now()))));
+
+        GetPortfolioValuationHistoryUseCase.Result result = service.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(USER, rangeFrom, rangeTo))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        GetPortfolioValuationHistoryUseCase.Result.Success success =
+                assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result);
+        assertEquals(purchaseDate, success.valuations().getFirst().date());
+        verify(marketDataPort).getFxHistory(
+                Currency.EUR, Currency.USD, purchaseDate.minusDays(7), rangeTo);
     }
 
     @Test

@@ -23,12 +23,11 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -88,33 +87,72 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
                                 (a, b) -> b,
                                 TreeMap::new)));
 
-        List<String> tickers = new ArrayList<>(byTicker.keySet());
-        if (tickers.isEmpty()) {
+        Map<String, HoldingWindow> holdingWindows = activeHoldingWindows(byTicker, from, to);
+        if (holdingWindows.isEmpty()) {
             return Uni.createFrom().item(List.of());
         }
 
-        Set<Currency> foreignCurrencies = snapshots.stream()
-                .map(DailyPositionSnapshot::currency)
-                .filter(currency -> currency != null && currency != baseCurrency)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<String> tickers = new ArrayList<>(holdingWindows.keySet());
+        Map<Currency, LocalDate> foreignCurrencyStarts = new LinkedHashMap<>();
+        holdingWindows.values().stream()
+                .filter(window -> window.currency() != null && window.currency() != baseCurrency)
+                .forEach(window -> foreignCurrencyStarts.merge(
+                        window.currency(), window.firstHeldDate(), GetPortfolioValuationHistoryService::earlier));
 
-        return loadPrices(tickers, from, to)
-                .flatMap(priceMap -> loadFxRates(foreignCurrencies, from, to)
+        return loadPrices(holdingWindows, to)
+                .flatMap(priceMap -> loadFxRates(foreignCurrencyStarts, to)
                         .map(fxMap -> buildDailyValuations(byTicker, tickers, priceMap, fxMap, from, to)));
     }
 
     /**
-     * Prices are fetched from {@code PRICE_STALENESS_DAYS} before {@code from} (rather than
-     * exactly {@code from}) so the first days of the requested range still have a usable floor
-     * price when {@code from} lands on a weekend/holiday gap in the price series — mirrors the
-     * same buffer {@link #loadFxRates} already applies for FX.
+     * Finds the first day each ticker is actually held inside the requested valuation range.
+     * A chart can start years before the first transaction; market-data providers must not be
+     * asked for that unused prefix (which can exceed their subscription's history entitlement).
+     */
+    private Map<String, HoldingWindow> activeHoldingWindows(
+            Map<String, NavigableMap<LocalDate, DailyPositionSnapshot>> byTicker,
+            LocalDate from,
+            LocalDate to) {
+        Map<String, HoldingWindow> windows = new LinkedHashMap<>();
+        byTicker.forEach((ticker, series) -> firstActiveSnapshot(series, from, to)
+                .ifPresent(entry -> windows.put(
+                        ticker, new HoldingWindow(entry.getKey(), entry.getValue().currency()))));
+        return windows;
+    }
+
+    private Optional<Map.Entry<LocalDate, DailyPositionSnapshot>> firstActiveSnapshot(
+            NavigableMap<LocalDate, DailyPositionSnapshot> series,
+            LocalDate from,
+            LocalDate to) {
+        Map.Entry<LocalDate, DailyPositionSnapshot> stateAtStart = series.floorEntry(from);
+        if (stateAtStart != null && hasShares(stateAtStart.getValue())) {
+            return Optional.of(Map.entry(from, stateAtStart.getValue()));
+        }
+        return series.subMap(from, true, to, true).entrySet().stream()
+                .filter(entry -> hasShares(entry.getValue()))
+                .findFirst();
+    }
+
+    private static boolean hasShares(DailyPositionSnapshot snapshot) {
+        return snapshot.sharesOwned().compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    private static LocalDate earlier(LocalDate left, LocalDate right) {
+        return left.isBefore(right) ? left : right;
+    }
+
+    /**
+     * Prices are fetched from {@code PRICE_STALENESS_DAYS} before the first day the ticker is held
+     * within the query range. This preserves the weekend/holiday floor lookup without requesting
+     * history for the potentially much older, unused prefix of the chart range.
      */
     private Uni<Map<String, NavigableMap<LocalDate, BigDecimal>>> loadPrices(
-            List<String> tickers, LocalDate from, LocalDate to) {
+            Map<String, HoldingWindow> holdingWindows, LocalDate to) {
         Uni<Map<String, NavigableMap<LocalDate, BigDecimal>>> pricesUni =
                 Uni.createFrom().item(new HashMap<>());
-        LocalDate priceFrom = from.minusDays(PRICE_STALENESS_DAYS);
-        for (String ticker : tickers) {
+        for (Map.Entry<String, HoldingWindow> holding : holdingWindows.entrySet()) {
+            String ticker = holding.getKey();
+            LocalDate priceFrom = holding.getValue().firstHeldDate().minusDays(PRICE_STALENESS_DAYS);
             pricesUni = pricesUni.flatMap(map -> marketDataPort.getPriceHistory(ticker, priceFrom, to)
                     .map(entries -> {
                         NavigableMap<LocalDate, BigDecimal> series = new TreeMap<>();
@@ -129,16 +167,17 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
     }
 
     /**
-     * FX is fetched from a week before {@code from} (rather than exactly {@code from}) so the
-     * first days of the requested range still have a usable floor rate when {@code from} lands
-     * on a weekend/holiday gap in the FX series.
+     * FX is fetched from a week before the first day any position in that currency is held within
+     * the query range. This preserves the weekend/holiday floor lookup without fetching an unused
+     * prefix before the portfolio had exposure to that currency.
      */
     private Uni<Map<Currency, NavigableMap<LocalDate, BigDecimal>>> loadFxRates(
-            Set<Currency> foreignCurrencies, LocalDate from, LocalDate to) {
+            Map<Currency, LocalDate> foreignCurrencyStarts, LocalDate to) {
         Uni<Map<Currency, NavigableMap<LocalDate, BigDecimal>>> fxUni =
                 Uni.createFrom().item(new HashMap<>());
-        LocalDate fxFrom = from.minusDays(7);
-        for (Currency currency : foreignCurrencies) {
+        for (Map.Entry<Currency, LocalDate> currencyWindow : foreignCurrencyStarts.entrySet()) {
+            Currency currency = currencyWindow.getKey();
+            LocalDate fxFrom = currencyWindow.getValue().minusDays(7);
             fxUni = fxUni.flatMap(map -> marketDataPort.getFxHistory(currency, baseCurrency, fxFrom, to)
                     .map(entries -> {
                         NavigableMap<LocalDate, BigDecimal> series = new TreeMap<>();
@@ -210,5 +249,8 @@ public class GetPortfolioValuationHistoryService implements GetPortfolioValuatio
             return Optional.of(BigDecimal.ONE);
         }
         return TimeSeriesLookup.floorWithinStaleness(fxMap.get(tickerCurrency), date, FX_STALENESS_DAYS);
+    }
+
+    private record HoldingWindow(LocalDate firstHeldDate, Currency currency) {
     }
 }
