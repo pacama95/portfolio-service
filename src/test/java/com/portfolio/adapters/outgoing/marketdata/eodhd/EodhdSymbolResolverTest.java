@@ -66,7 +66,23 @@ class EodhdSymbolResolverTest {
         when(listings.findBySymbol("AAPL")).thenReturn(Uni.createFrom().item(List.of(
                 new InstrumentListing("AAPL", "NASDAQ", "United States", Currency.USD))));
         when(client.search("AAPL", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
-                search("AAPL", "US", "USA", "USD"))));
+                // Search metadata can be incomplete or inconsistent; the catalog's ISO aliases
+                // remain authoritative for the selected exchange.
+                search("AAPL", "US", "Canada", "USD"))));
+
+        assertEquals("AAPL.US", await(resolver.resolve("AAPL")).providerSymbol());
+    }
+
+    @Test
+    void givenCountryNamesMissing_whenCatalogHasIso2_thenResolvesQualifiedSymbol() {
+        EodhdExchange exchange = new EodhdExchange(
+                "US", "USA Stocks", "XNAS,XNYS", null, "USD", "US", "USA", true,
+                OffsetDateTime.now());
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(exchange)));
+        when(listings.findBySymbol("AAPL")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("AAPL", "NASDAQ", "United States", Currency.USD))));
+        when(client.search("AAPL", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("AAPL", "US", null, "USD"))));
 
         assertEquals("AAPL.US", await(resolver.resolve("AAPL")).providerSymbol());
     }
