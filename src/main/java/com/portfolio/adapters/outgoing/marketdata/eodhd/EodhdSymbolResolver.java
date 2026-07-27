@@ -36,6 +36,7 @@ class EodhdSymbolResolver {
 
     private static final Logger LOG = Logger.getLogger(EodhdSymbolResolver.class);
     private static final String OVERRIDE_PREFIX = "application.market-data.eodhd.symbol-overrides.";
+    private static final Map<String, String> COUNTRY_CODES = countryCodes();
 
     private final EodhdClient client;
     private final EodhdExchangeCatalog catalog;
@@ -208,11 +209,11 @@ class EodhdSymbolResolver {
     }
 
     private boolean matchesCountry(String listingCountry, EodhdSearchResponse result, EodhdExchange exchange) {
-        String expected = normalize(listingCountry);
-        return expected.equals(normalize(result.country()))
-                || expected.equals(normalize(exchange.country()))
-                || expected.equals(normalize(exchange.countryIso2()))
-                || expected.equals(normalize(exchange.countryIso3()));
+        String expected = normalizeCountry(listingCountry);
+        return expected.equals(normalizeCountry(result.country()))
+                || expected.equals(normalizeCountry(exchange.country()))
+                || expected.equals(normalizeCountry(exchange.countryIso2()))
+                || expected.equals(normalizeCountry(exchange.countryIso3()));
     }
 
     private boolean matchesCurrency(ListingHints hints, EodhdSearchResponse result, EodhdExchange exchange) {
@@ -225,7 +226,7 @@ class EodhdSymbolResolver {
 
     private ListingHints listingHints(String canonical, List<InstrumentListing> instrumentListings) {
         Set<String> exchanges = distinctNonBlank(instrumentListings.stream().map(InstrumentListing::exchange).toList());
-        Set<String> countries = distinctNonBlank(instrumentListings.stream().map(InstrumentListing::country).toList());
+        Set<String> countries = distinctCountries(instrumentListings.stream().map(InstrumentListing::country).toList());
         Set<com.portfolio.core.model.Currency> currencies = new TreeSet<>();
         instrumentListings.stream().map(InstrumentListing::currency).filter(java.util.Objects::nonNull)
                 .forEach(currencies::add);
@@ -329,6 +330,43 @@ class EodhdSymbolResolver {
             }
         }
         return distinct;
+    }
+
+    private Set<String> distinctCountries(List<String> values) {
+        Set<String> distinct = new TreeSet<>();
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                distinct.add(normalizeCountry(value));
+            }
+        }
+        return distinct;
+    }
+
+    /**
+     * Converts ISO alpha-2, ISO alpha-3, and English display names to one country identifier.
+     * EODHD commonly returns {@code USA}, while transaction suggestions use
+     * {@code United States}; this translation is deliberately private to the adapter.
+     */
+    private static String normalizeCountry(String value) {
+        String key = countryKey(value);
+        return COUNTRY_CODES.getOrDefault(key, key);
+    }
+
+    private static Map<String, String> countryCodes() {
+        Map<String, String> aliases = new HashMap<>();
+        for (String alpha2 : Locale.getISOCountries()) {
+            Locale country = Locale.of("", alpha2);
+            aliases.put(countryKey(alpha2), alpha2);
+            aliases.put(countryKey(country.getISO3Country()), alpha2);
+            aliases.put(countryKey(country.getDisplayCountry(Locale.ENGLISH)), alpha2);
+        }
+        // EODHD uses UK in some exchange rows, although the ISO alpha-2 code is GB.
+        aliases.put("UK", "GB");
+        return Map.copyOf(aliases);
+    }
+
+    private static String countryKey(String value) {
+        return normalize(value).replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
     private static Map<String, String> extractOverrides(Config config) {

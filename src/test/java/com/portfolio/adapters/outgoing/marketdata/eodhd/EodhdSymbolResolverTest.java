@@ -61,6 +61,29 @@ class EodhdSymbolResolverTest {
     }
 
     @Test
+    void givenEnglishCountryName_whenEodhdUsesIso3Name_thenResolvesQualifiedSymbol() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("AAPL")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("AAPL", "NASDAQ", "United States", Currency.USD))));
+        when(client.search("AAPL", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("AAPL", "US", "USA", "USD"))));
+
+        assertEquals("AAPL.US", await(resolver.resolve("AAPL")).providerSymbol());
+    }
+
+    @Test
+    void givenEquivalentCountryRepresentationsAcrossTransactions_whenResolving_thenDoesNotConflict() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("AAPL")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("AAPL", "NASDAQ", "US", Currency.USD),
+                new InstrumentListing("AAPL", "NASDAQ", "United States", Currency.USD))));
+        when(client.search("AAPL", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("AAPL", "US", "USA", "USD"))));
+
+        assertEquals("AAPL.US", await(resolver.resolve("AAPL")).providerSymbol());
+    }
+
+    @Test
     void givenOperatingMicMetadata_whenResolving_thenUsesKnownExchangeAsSearchFilter() {
         EodhdExchange lse = new EodhdExchange(
                 "LSE", "London Stock Exchange", "XLON", "UK", "GBX", "GB", "GBR", true,
