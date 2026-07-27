@@ -186,6 +186,13 @@ shared `CurrencyResolver`; FX rates are never scaled. Every provider fetch persi
 provider in spot, price-history, FX-history, and coverage storage. Manual spot quotes retain
 `source=MANUAL` and a null provider.
 
+EODHD's Free Starter subscription exposes only the previous year of EOD history. For an older
+request, EODHD may still return HTTP 200 with a `warning` attached to the last bar, together with a
+truncated series. The adapter rejects that response as a typed provider failure so the router can
+try the next provider and, critically, so the application never records the unavailable portion as
+covered. With EODHD as the only provider, portfolio history older than the subscription permits
+requires a plan with deeper history (or data that was already persisted locally).
+
 The complete API research, invariants, failure matrix, persistence model, and rollout checklist are
 in [`EODHD_PROVIDER_PLAN.md`](EODHD_PROVIDER_PLAN.md). The implementation follows EODHD's official
 [OpenAPI reference](https://eodhistoricaldata.github.io/EODHD-openapi/redoc.html),

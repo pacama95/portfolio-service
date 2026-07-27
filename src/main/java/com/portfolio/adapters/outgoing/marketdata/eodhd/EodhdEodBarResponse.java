@@ -14,6 +14,11 @@ public record EodhdEodBarResponse(
         @JsonDeserialize(using = EodhdDecimalDeserializer.class) BigDecimal close,
         @JsonProperty("adjusted_close")
         @JsonDeserialize(using = EodhdDecimalDeserializer.class)
-        BigDecimal adjustedClose
+        BigDecimal adjustedClose,
+        String warning
 ) {
+
+    EodhdEodBarResponse(String date, BigDecimal close, BigDecimal adjustedClose) {
+        this(date, close, adjustedClose, null);
+    }
 }

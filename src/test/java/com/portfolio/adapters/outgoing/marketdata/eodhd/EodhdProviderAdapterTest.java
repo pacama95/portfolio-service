@@ -136,6 +136,43 @@ class EodhdProviderAdapterTest {
     }
 
     @Test
+    void givenSubscriptionWarning_whenFetchingHistory_thenRejectsTruncatedRangeForFallback() {
+        when(resolver.resolve("AAPL")).thenReturn(Uni.createFrom().item(
+                new EodhdResolvedSymbol("AAPL", "AAPL.US", "US", "USD")));
+        when(client.eod("AAPL.US", API_KEY, "json", "2024-01-01", "2026-07-24", "d", "a"))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        new EodhdEodBarResponse(
+                                "2025-07-28", new BigDecimal("214.05"), new BigDecimal("213.2042"), null),
+                        new EodhdEodBarResponse(
+                                "2026-07-24",
+                                new BigDecimal("333.02"),
+                                new BigDecimal("333.02"),
+                                "Data is limited by one year as you have free subscription"))));
+
+        adapter.fetchPriceHistory(
+                        "AAPL", LocalDate.of(2024, 1, 1), LocalDate.of(2026, 7, 24))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
+    }
+
+    @Test
+    void givenWarningOnlyResponse_whenFetchingFxHistory_thenReturnsTypedProviderFailure() {
+        when(client.eod("EURUSD.FOREX", API_KEY, "json", "2024-01-01", "2024-01-02", "d", "a"))
+                .thenReturn(Uni.createFrom().item(List.of(new EodhdEodBarResponse(
+                        null, null, null, "Data is limited by one year as you have free subscription"))));
+
+        adapter.fetchFxHistory(
+                        Currency.EUR,
+                        Currency.USD,
+                        LocalDate.of(2024, 1, 1),
+                        LocalDate.of(2024, 1, 2))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitFailure()
+                .assertFailedWith(MarketDataProviderError.ErrorResponse.class);
+    }
+
+    @Test
     void givenMissingRequiredClose_whenFetching_thenFailsTyped() {
         when(resolver.resolve("AAPL")).thenReturn(Uni.createFrom().item(
                 new EodhdResolvedSymbol("AAPL", "AAPL.US", "US", "USD")));

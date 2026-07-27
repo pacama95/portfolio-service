@@ -64,4 +64,20 @@ class EodhdResponseDeserializationTest {
                 Exception.class,
                 () -> objectMapper.readValue("{\"close\":{\"unexpected\":true}}", EodhdRealTimeResponse.class));
     }
+
+    @Test
+    void givenHistoryLimitWarning_whenDeserialized_thenPreservesItForAdapterValidation() throws Exception {
+        List<EodhdEodBarResponse> response = objectMapper.readValue("""
+                [{
+                  "date": "2026-07-24",
+                  "close": 333.02,
+                  "adjusted_close": 333.02,
+                  "warning": "Data is limited by one year as you have free subscription"
+                }]
+                """, new TypeReference<>() {});
+
+        assertEquals(
+                "Data is limited by one year as you have free subscription",
+                response.getFirst().warning());
+    }
 }

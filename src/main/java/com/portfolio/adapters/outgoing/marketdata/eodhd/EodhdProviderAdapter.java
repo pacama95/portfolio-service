@@ -134,6 +134,7 @@ public class EodhdProviderAdapter implements MarketDataProviderPort {
         if (response == null) {
             throw new MarketDataProviderError.MissingData(canonical, "history");
         }
+        failIfHistoryWarning(canonical, response);
         OffsetDateTime fetchedAt = OffsetDateTime.now();
         List<PriceHistoryEntry> entries = new ArrayList<>();
         for (EodhdEodBarResponse bar : response) {
@@ -159,6 +160,7 @@ public class EodhdProviderAdapter implements MarketDataProviderPort {
         if (response == null) {
             throw new MarketDataProviderError.MissingData(canonical, "history");
         }
+        failIfHistoryWarning(canonical, response);
         OffsetDateTime fetchedAt = OffsetDateTime.now();
         List<FxRateEntry> entries = new ArrayList<>();
         for (EodhdEodBarResponse bar : response) {
@@ -170,6 +172,24 @@ public class EodhdProviderAdapter implements MarketDataProviderPort {
         }
         entries.sort(Comparator.comparing(FxRateEntry::rateDate));
         return List.copyOf(entries);
+    }
+
+    /**
+     * EODHD may return HTTP 200 and attach a subscription warning to the final bar, or return a
+     * warning-only object when the entire requested range is unavailable. Accepting that response
+     * would make MarketDataService mark a truncated range as completely covered.
+     */
+    private void failIfHistoryWarning(String canonical, List<EodhdEodBarResponse> response) {
+        response.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(EodhdEodBarResponse::warning)
+                .filter(warning -> warning != null && !warning.isBlank())
+                .findFirst()
+                .ifPresent(warning -> {
+                    String message = warning.trim();
+                    LOG.warnf("EODHD history response rejected symbol=%s warning=%s", canonical, message);
+                    throw new MarketDataProviderError.ErrorResponse(canonical, message);
+                });
     }
 
     private LocalDate requiredDate(EodhdEodBarResponse bar, String symbol) {
