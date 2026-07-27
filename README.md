@@ -200,6 +200,8 @@ foreign currency and requests FX from seven days before first exposure. Position
 before `from` cause no provider request. This keeps the application port provider-neutral while
 avoiding EODHD entitlement failures for an unused chart prefix—for example, a chart starting in
 2024 whose first purchase is in 2026 does not ask EODHD for 2024 prices.
+The default `application.portfolio.max-query-range-days=5500` accepts the frontend's 15-year
+“All” envelope; this is only the response range, not automatically the provider-fetch range.
 
 ```mermaid
 sequenceDiagram
