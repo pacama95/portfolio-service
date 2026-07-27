@@ -186,6 +186,36 @@ class PositionApiIT {
 
     @Test
     @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-seed.sql")
+    void givenProviderChainExhausted_whenGetByTicker_thenReturnsUnavailableButExistsStillWorks() {
+        WireMockMarketDataResource.server.stubFor(WireMock.get(urlPathEqualTo("/price"))
+                .atPriority(1)
+                .willReturn(aResponse().withStatus(500)));
+
+        given()
+                .header("X-User-Id", USER_A)
+                .when()
+                .get("/api/positions/ticker/AAPL")
+                .then()
+                .statusCode(503)
+                .body("error", equalTo("MARKET_DATA_UNAVAILABLE"))
+                .body("message", equalTo("Market data is temporarily unavailable"));
+
+        WireMockMarketDataResource.server.resetRequests();
+
+        given()
+                .header("X-User-Id", USER_A)
+                .when()
+                .get("/api/positions/ticker/AAPL/exists")
+                .then()
+                .statusCode(200)
+                .body(equalTo("true"));
+
+        WireMockMarketDataResource.server.verify(0, getRequestedFor(urlPathEqualTo("/price")));
+        WireMockMarketDataResource.server.verify(0, getRequestedFor(urlPathMatching("/api/search/.*")));
+    }
+
+    @Test
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-seed.sql")
     void givenSeededTransactions_whenExistsAndCounts_thenMatchPositions() {
         WireMockMarketDataResource.server.stubFor(WireMock.get(urlPathEqualTo("/price"))
                 .willReturn(aResponse()
