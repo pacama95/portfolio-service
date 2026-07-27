@@ -1,154 +1,19 @@
 databaseChangeLog:
-  - changeSet:
-      id: 001-schema
-      author: portfolio-service
-      changes:
-        - sqlFile:
-            path: schema.sql
-            relativeToChangelogFile: true
-            splitStatements: false
-  - changeSet:
-      id: 002-extend-currency-type
-      author: portfolio-service
-      comment: >
-        Adds the non-USD/EUR/GBP/CAD/JPY currencies already listed in the exchanges seed
-        (CHF, AUD, HKD, SEK, NOK) so price/FX ingestion no longer has to mislabel them as USD.
-      changes:
-        - sql:
-            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'CHF'
-        - sql:
-            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'AUD'
-        - sql:
-            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'HKD'
-        - sql:
-            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'SEK'
-        - sql:
-            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'NOK'
-  - changeSet:
-      id: 003-extend-ingestion-run-status
-      author: portfolio-service
-      comment: >
-        Adds a PARTIAL status so an ingestion run that fetched some symbols successfully and
-        failed on others can be recorded as such, instead of the whole run being marked FAILED
-        (which previously discarded which symbols had already succeeded).
-      changes:
-        - sql:
-            sql: ALTER TYPE ingestion_run_status ADD VALUE IF NOT EXISTS 'PARTIAL'
-  - changeSet:
-      id: 004-drop-exchanges-table
-      author: portfolio-service
-      comment: >
-        Drops the exchanges table and its 24-row seed. Confirmed fully dead: no code anywhere
-        queries it -- minor-unit currency resolution is entirely config-driven via
-        CurrencyResolver (application.market-data.currency-minor-units.*), which duplicates and
-        supersedes what this table's price_currency/price_multiplier columns were meant for.
-      changes:
-        - sql:
-            sql: DROP TABLE IF EXISTS exchanges;
-  - changeSet:
-      id: 005-add-spot-quote-provider
-      author: portfolio-service
-      comment: >
-        Records which configured provider produced a spot price or FX quote. Manual quotes keep
-        this column null; their provenance remains represented by source=MANUAL.
-      changes:
-        - sql:
-            sql: ALTER TABLE spot_quotes ADD COLUMN IF NOT EXISTS provider VARCHAR(64)
-  - changeSet:
-      id: 006-add-eodhd-reference-data
-      author: portfolio-service
-      comment: >
-        Persists EODHD exchange codes and resolved provider-qualified symbols inside the adapter
-        boundary. Inactive exchanges are retained to preserve existing mapping foreign keys.
-      changes:
-        - createTable:
-            ifNotExists: true
-            tableName: eodhd_exchanges
-            columns:
-              - column:
-                  name: code
-                  type: VARCHAR(20)
-                  constraints:
-                    primaryKey: true
-                    nullable: false
-              - column:
-                  name: name
-                  type: VARCHAR(255)
-                  constraints:
-                    nullable: false
-              - column:
-                  name: operating_mic
-                  type: VARCHAR(255)
-              - column:
-                  name: country
-                  type: VARCHAR(100)
-              - column:
-                  name: currency
-                  type: VARCHAR(10)
-              - column:
-                  name: country_iso2
-                  type: VARCHAR(2)
-              - column:
-                  name: country_iso3
-                  type: VARCHAR(3)
-              - column:
-                  name: active
-                  type: BOOLEAN
-                  defaultValueBoolean: true
-                  constraints:
-                    nullable: false
-              - column:
-                  name: fetched_at
-                  type: TIMESTAMP WITH TIME ZONE
-                  constraints:
-                    nullable: false
-              - column:
-                  name: updated_at
-                  type: TIMESTAMP WITH TIME ZONE
-                  defaultValueComputed: CURRENT_TIMESTAMP
-                  constraints:
-                    nullable: false
-        - createTable:
-            ifNotExists: true
-            tableName: eodhd_symbol_mappings
-            columns:
-              - column:
-                  name: canonical_symbol
-                  type: VARCHAR(32)
-                  constraints:
-                    primaryKey: true
-                    nullable: false
-              - column:
-                  name: provider_symbol
-                  type: VARCHAR(64)
-                  constraints:
-                    nullable: false
-              - column:
-                  name: exchange_code
-                  type: VARCHAR(20)
-                  constraints:
-                    nullable: false
-                    foreignKeyName: fk_eodhd_symbol_mapping_exchange
-                    references: eodhd_exchanges(code)
-              - column:
-                  name: raw_currency
-                  type: VARCHAR(10)
-              - column:
-                  name: metadata_fingerprint
-                  type: VARCHAR(64)
-              - column:
-                  name: resolution_source
-                  type: VARCHAR(32)
-                  constraints:
-                    nullable: false
-              - column:
-                  name: resolved_at
-                  type: TIMESTAMP WITH TIME ZONE
-                  constraints:
-                    nullable: false
-              - column:
-                  name: updated_at
-                  type: TIMESTAMP WITH TIME ZONE
-                  defaultValueComputed: CURRENT_TIMESTAMP
-                  constraints:
-                    nullable: false
+  - include:
+      file: db.changelog-001-schema.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: db.changelog-002-extend-currency-type.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: db.changelog-003-extend-ingestion-run-status.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: db.changelog-004-drop-exchanges-table.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: db.changelog-005-add-spot-quote-provider.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: db.changelog-006-add-eodhd-reference-data.yaml
+      relativeToChangelogFile: true

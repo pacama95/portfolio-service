@@ -119,7 +119,6 @@ CREATE TABLE spot_quotes (
     quote_currency currency_type,
     as_of TIMESTAMP WITH TIME ZONE NOT NULL,
     source quote_source NOT NULL DEFAULT 'PROVIDER',
-    provider VARCHAR(64),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (kind, symbol)
@@ -165,29 +164,4 @@ CREATE TABLE market_data_coverage (
     fetched_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (coverage_kind, symbol, from_date, to_date)
-);
-
--- EODHD-private reference data. Provider identifiers never enter the domain model.
-CREATE TABLE eodhd_exchanges (
-    code VARCHAR(20) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    operating_mic VARCHAR(255),
-    country VARCHAR(100),
-    currency VARCHAR(10),
-    country_iso2 VARCHAR(2),
-    country_iso3 VARCHAR(3),
-    active BOOLEAN NOT NULL DEFAULT TRUE,
-    fetched_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE eodhd_symbol_mappings (
-    canonical_symbol VARCHAR(32) PRIMARY KEY,
-    provider_symbol VARCHAR(64) NOT NULL,
-    exchange_code VARCHAR(20) NOT NULL REFERENCES eodhd_exchanges(code),
-    raw_currency VARCHAR(10),
-    metadata_fingerprint VARCHAR(64),
-    resolution_source VARCHAR(32) NOT NULL,
-    resolved_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

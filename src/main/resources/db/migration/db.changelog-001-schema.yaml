@@ -1,0 +1,11 @@
+databaseChangeLog:
+  # Preserve the identity recorded before this change set was moved out of the master file.
+  - logicalFilePath: db/migration/db.changelog-master.yaml
+  - changeSet:
+      id: 001-schema
+      author: portfolio-service
+      changes:
+        - sqlFile:
+            path: schema.sql
+            relativeToChangelogFile: true
+            splitStatements: false

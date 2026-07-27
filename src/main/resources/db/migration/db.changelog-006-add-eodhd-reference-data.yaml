@@ -1,0 +1,101 @@
+databaseChangeLog:
+  # Preserve the identity recorded before this change set was moved out of the master file.
+  - logicalFilePath: db/migration/db.changelog-master.yaml
+  - changeSet:
+      id: 006-add-eodhd-reference-data
+      author: portfolio-service
+      comment: >
+        Persists EODHD exchange codes and resolved provider-qualified symbols inside the adapter
+        boundary. Inactive exchanges are retained to preserve existing mapping foreign keys.
+      changes:
+        - createTable:
+            ifNotExists: true
+            tableName: eodhd_exchanges
+            columns:
+              - column:
+                  name: code
+                  type: VARCHAR(20)
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: operating_mic
+                  type: VARCHAR(255)
+              - column:
+                  name: country
+                  type: VARCHAR(100)
+              - column:
+                  name: currency
+                  type: VARCHAR(10)
+              - column:
+                  name: country_iso2
+                  type: VARCHAR(2)
+              - column:
+                  name: country_iso3
+                  type: VARCHAR(3)
+              - column:
+                  name: active
+                  type: BOOLEAN
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: fetched_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+        - createTable:
+            ifNotExists: true
+            tableName: eodhd_symbol_mappings
+            columns:
+              - column:
+                  name: canonical_symbol
+                  type: VARCHAR(32)
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: provider_symbol
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: exchange_code
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_eodhd_symbol_mapping_exchange
+                    references: eodhd_exchanges(code)
+              - column:
+                  name: raw_currency
+                  type: VARCHAR(10)
+              - column:
+                  name: metadata_fingerprint
+                  type: VARCHAR(64)
+              - column:
+                  name: resolution_source
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: resolved_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false

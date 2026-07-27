@@ -1,0 +1,14 @@
+databaseChangeLog:
+  # Preserve the identity recorded before this change set was moved out of the master file.
+  - logicalFilePath: db/migration/db.changelog-master.yaml
+  - changeSet:
+      id: 004-drop-exchanges-table
+      author: portfolio-service
+      comment: >
+        Drops the exchanges table and its 24-row seed. Confirmed fully dead: no code anywhere
+        queries it -- minor-unit currency resolution is entirely config-driven via
+        CurrencyResolver (application.market-data.currency-minor-units.*), which duplicates and
+        supersedes what this table's price_currency/price_multiplier columns were meant for.
+      changes:
+        - sql:
+            sql: DROP TABLE IF EXISTS exchanges;

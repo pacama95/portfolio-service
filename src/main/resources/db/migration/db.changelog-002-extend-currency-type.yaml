@@ -1,0 +1,20 @@
+databaseChangeLog:
+  # Preserve the identity recorded before this change set was moved out of the master file.
+  - logicalFilePath: db/migration/db.changelog-master.yaml
+  - changeSet:
+      id: 002-extend-currency-type
+      author: portfolio-service
+      comment: >
+        Adds the non-USD/EUR/GBP/CAD/JPY currencies already listed in the exchanges seed
+        (CHF, AUD, HKD, SEK, NOK) so price/FX ingestion no longer has to mislabel them as USD.
+      changes:
+        - sql:
+            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'CHF'
+        - sql:
+            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'AUD'
+        - sql:
+            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'HKD'
+        - sql:
+            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'SEK'
+        - sql:
+            sql: ALTER TYPE currency_type ADD VALUE IF NOT EXISTS 'NOK'
