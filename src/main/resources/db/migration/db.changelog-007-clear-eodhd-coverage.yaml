@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - changeSet:
+      id: 007-clear-eodhd-coverage
+      author: portfolio-service
+      comment: >
+        Clears only EODHD range-coverage metadata created before subscription warnings were
+        recognized. EODHD can return a truncated HTTP-200 history response, so those rows may
+        incorrectly claim that unavailable dates were covered. Valid persisted prices are kept.
+      changes:
+        - sql:
+            sql: DELETE FROM market_data_coverage WHERE provider = 'eodhd'
