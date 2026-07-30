@@ -6,6 +6,7 @@ import com.portfolio.core.model.Transaction;
 import com.portfolio.core.model.event.TransactionCreatedEvent;
 import com.portfolio.core.ports.incoming.CreateTransactionUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
+import com.portfolio.core.ports.outgoing.ProviderSymbolMappingPort;
 import com.portfolio.core.ports.outgoing.TransactionEventPublisher;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
@@ -27,14 +28,17 @@ public class CreateTransactionService implements CreateTransactionUseCase {
     private final TransactionRepository transactionRepository;
     private final TransactionEventPublisher eventPublisher;
     private final MarketDataPort marketDataPort;
+    private final ProviderSymbolMappingPort providerSymbolMappings;
 
     public CreateTransactionService(
             TransactionRepository transactionRepository,
             TransactionEventPublisher eventPublisher,
-            MarketDataPort marketDataPort) {
+            MarketDataPort marketDataPort,
+            ProviderSymbolMappingPort providerSymbolMappings) {
         this.transactionRepository = transactionRepository;
         this.eventPublisher = eventPublisher;
         this.marketDataPort = marketDataPort;
+        this.providerSymbolMappings = providerSymbolMappings;
     }
 
     @Override
@@ -54,6 +58,14 @@ public class CreateTransactionService implements CreateTransactionUseCase {
         if (command.transactionType() == null || command.assetType() == null
                 || command.currency() == null || command.transactionDate() == null) {
             return Uni.createFrom().item(new Result.InvalidRequest("required fields missing"));
+        }
+        // Exchange and country are what let a market-data provider resolve a bare ticker to one
+        // specific listing. Accepting a transaction without them defers the failure to pricing.
+        if (command.exchange() == null || command.exchange().isBlank()) {
+            return Uni.createFrom().item(new Result.InvalidRequest("exchange is required"));
+        }
+        if (command.country() == null || command.country().isBlank()) {
+            return Uni.createFrom().item(new Result.InvalidRequest("country is required"));
         }
 
         BigDecimal rawFees = command.fees() != null ? command.fees() : BigDecimal.ZERO;
@@ -108,8 +120,8 @@ public class CreateTransactionService implements CreateTransactionUseCase {
                                     "Created transaction id=%s ticker=%s", saved.id(), saved.ticker()))
                             .map(Result.Success::new);
                 })
-                .call(result -> result instanceof Result.Success(Transaction transaction1)
-                        ? publishCreatedEvent(transaction1)
+                .call(result -> result instanceof Result.Success(Transaction saved)
+                        ? providerSymbolMappings.invalidate(saved.ticker()).chain(() -> publishCreatedEvent(saved))
                         : Uni.createFrom().voidItem());
     }
 

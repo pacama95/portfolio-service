@@ -3,6 +3,7 @@ package com.portfolio.core.application.usecase.transaction;
 import com.portfolio.core.domain.LedgerReplay;
 import com.portfolio.core.model.Transaction;
 import com.portfolio.core.ports.incoming.DeleteTransactionUseCase;
+import com.portfolio.core.ports.outgoing.ProviderSymbolMappingPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -16,9 +17,13 @@ public class DeleteTransactionService implements DeleteTransactionUseCase {
     private static final Logger LOG = Logger.getLogger(DeleteTransactionService.class);
 
     private final TransactionRepository transactionRepository;
+    private final ProviderSymbolMappingPort providerSymbolMappings;
 
-    public DeleteTransactionService(TransactionRepository transactionRepository) {
+    public DeleteTransactionService(
+            TransactionRepository transactionRepository,
+            ProviderSymbolMappingPort providerSymbolMappings) {
         this.transactionRepository = transactionRepository;
+        this.providerSymbolMappings = providerSymbolMappings;
     }
 
     @Override
@@ -53,7 +58,10 @@ public class DeleteTransactionService implements DeleteTransactionUseCase {
                                             }
                                             return new Result.NotFound(command.id());
                                         });
-                            });
+                            })
+                            .call(result -> result instanceof Result.Success
+                                    ? providerSymbolMappings.invalidate(target.ticker())
+                                    : Uni.createFrom().voidItem());
                 });
     }
 }

@@ -1,7 +1,8 @@
 package com.portfolio.adapters.outgoing.marketdata.eodhd;
 
 enum EodhdResolutionSource {
-    CONFIG_OVERRIDE,
+    /** Inserted by an operator. Never written by the resolver and never invalidated. */
+    MANUAL,
     TRANSACTION_METADATA,
     UNIQUE_SEARCH
 }

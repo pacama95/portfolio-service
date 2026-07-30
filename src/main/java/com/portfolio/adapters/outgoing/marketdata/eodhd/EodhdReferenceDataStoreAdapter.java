@@ -80,11 +80,22 @@ class EodhdReferenceDataStoreAdapter implements EodhdReferenceDataStore {
         entity.providerSymbol = mapping.providerSymbol();
         entity.exchangeCode = mapping.exchangeCode();
         entity.rawCurrency = mapping.rawCurrency();
-        entity.metadataFingerprint = mapping.metadataFingerprint();
         entity.resolutionSource = mapping.resolutionSource();
         entity.resolvedAt = mapping.resolvedAt();
         entity.updatedAt = now;
         return Panache.getSession().flatMap(session -> session.merge(entity)).replaceWithVoid();
+    }
+
+    @Override
+    @WithTransaction
+    public Uni<Void> deleteResolvedSymbolMapping(String canonicalSymbol) {
+        return Panache.getSession().flatMap(session -> session.createQuery(
+                        "delete from EodhdSymbolMappingEntity m where m.canonicalSymbol = :symbol "
+                                + "and m.resolutionSource <> :manual")
+                .setParameter("symbol", normalizeSymbol(canonicalSymbol))
+                .setParameter("manual", EodhdResolutionSource.MANUAL)
+                .executeUpdate())
+                .replaceWithVoid();
     }
 
     private EodhdExchangeEntity toEntity(EodhdExchange exchange, OffsetDateTime fetchedAt) {
@@ -121,7 +132,6 @@ class EodhdReferenceDataStoreAdapter implements EodhdReferenceDataStore {
                 entity.providerSymbol,
                 entity.exchangeCode,
                 entity.rawCurrency,
-                entity.metadataFingerprint,
                 entity.resolutionSource,
                 entity.resolvedAt);
     }

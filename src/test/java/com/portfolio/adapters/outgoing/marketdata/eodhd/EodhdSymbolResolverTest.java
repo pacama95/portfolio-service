@@ -12,7 +12,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
-import org.eclipse.microprofile.config.Config;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -39,7 +38,14 @@ class EodhdSymbolResolverTest {
 
     @BeforeEach
     void setUp() {
-        resolver = resolver(Map.of());
+        resolver = new EodhdSymbolResolver(
+                client,
+                catalog,
+                store,
+                listings,
+                currencyResolver,
+                API_KEY,
+                new ReactiveRateLimiter("test", 60_000, Duration.ofMinutes(1)));
         when(store.findSymbolMapping(any())).thenReturn(Uni.createFrom().item(Optional.empty()));
         when(store.upsertSymbolMapping(any())).thenReturn(Uni.createFrom().voidItem());
     }
@@ -58,6 +64,45 @@ class EodhdSymbolResolverTest {
         ArgumentCaptor<EodhdSymbolMapping> persisted = ArgumentCaptor.forClass(EodhdSymbolMapping.class);
         verify(store).upsertSymbolMapping(persisted.capture());
         assertEquals(EodhdResolutionSource.TRANSACTION_METADATA, persisted.getValue().resolutionSource());
+    }
+
+    /**
+     * The whole reason listing metadata exists. A broker's exchange label matches neither EODHD's
+     * code (MC) nor its MIC (XMAD), but country and currency identify the listing, so the single
+     * remaining candidate must still resolve instead of failing as unmatched.
+     */
+    @Test
+    void givenBrokerExchangeLabelUnknownToEodhd_whenCountryAndCurrencyMatch_thenStillResolves() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(madridExchange())));
+        when(listings.findBySymbol("EBRO")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("EBRO", "BOLSA DE MADRID", "ES", Currency.EUR))));
+        when(client.search("EBRO", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("EBRO", "MC", "Spain", "EUR"))));
+
+        assertEquals("EBRO.MC", await(resolver.resolve("EBRO")).providerSymbol());
+    }
+
+    @Test
+    void givenBrokerLabelMatchesNothingAndCountryDiffers_whenResolving_thenFailsInsteadOfGuessing() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
+        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("ABC", "BOLSA DE MADRID", "ES", Currency.EUR))));
+        when(client.search("ABC", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("ABC", "US", "USA", "USD"))));
+
+        assertResolutionFailure(resolver.resolve("ABC"));
+    }
+
+    @Test
+    void givenAmbiguousResults_whenExchangeHintMatchesOne_thenNarrowsToThatListing() {
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange(), lseExchange())));
+        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("ABC", "XLON", null, null))));
+        when(client.search("ABC", API_KEY, "json", "LSE")).thenReturn(Uni.createFrom().item(List.of(
+                search("ABC", "US", "USA", "USD"),
+                search("ABC", "LSE", "UK", "GBX"))));
+
+        assertEquals("ABC.LSE", await(resolver.resolve("ABC")).providerSymbol());
     }
 
     @Test
@@ -101,10 +146,7 @@ class EodhdSymbolResolverTest {
 
     @Test
     void givenOperatingMicMetadata_whenResolving_thenUsesKnownExchangeAsSearchFilter() {
-        EodhdExchange lse = new EodhdExchange(
-                "LSE", "London Stock Exchange", "XLON", "UK", "GBX", "GB", "GBR", true,
-                OffsetDateTime.now());
-        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(lse)));
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(lseExchange())));
         when(listings.findBySymbol("BARC")).thenReturn(Uni.createFrom().item(List.of(
                 new InstrumentListing("BARC", "XLON", "GB", Currency.GBP))));
         when(client.search("BARC", API_KEY, "json", "LSE")).thenReturn(Uni.createFrom().item(List.of(
@@ -116,19 +158,13 @@ class EodhdSymbolResolverTest {
 
     @Test
     void givenNoMetadataAndAmbiguousExactResults_whenResolving_thenFailsExplicitly() {
-        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(
-                usExchange(),
-                new EodhdExchange("LSE", "London", "XLON", "UK", "GBP", "GB", "GBR", true,
-                        OffsetDateTime.now()))));
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange(), lseExchange())));
         when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of()));
         when(client.search("ABC", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
                 search("ABC", "US", "USA", "USD"),
                 search("ABC", "LSE", "UK", "GBP"))));
 
-        resolver.resolve("ABC")
-                .subscribe().withSubscriber(UniAssertSubscriber.create())
-                .awaitFailure()
-                .assertFailedWith(MarketDataProviderError.SymbolResolution.class);
+        assertResolutionFailure(resolver.resolve("ABC"));
 
         verify(store, never()).upsertSymbolMapping(any());
     }
@@ -140,53 +176,52 @@ class EodhdSymbolResolverTest {
                 new InstrumentListing("ABC", "NASDAQ", "US", Currency.USD),
                 new InstrumentListing("ABC", "LSE", "GB", Currency.GBP))));
 
-        resolver.resolve("ABC")
-                .subscribe().withSubscriber(UniAssertSubscriber.create())
-                .awaitFailure()
-                .assertFailedWith(MarketDataProviderError.SymbolResolution.class);
+        assertResolutionFailure(resolver.resolve("ABC"));
 
         verify(client, never()).search(any(), any(), any(), any());
     }
 
     @Test
-    void givenConfiguredOverrideForDottedTicker_whenResolving_thenNeverParsesInputDotAsExchange() {
-        resolver = resolver(Map.of("BRK.B", "BRK.B.US"));
+    void givenDottedCanonicalTicker_whenResolving_thenSearchesItWholeAndNeverSplitsOnTheDot() {
         when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
         when(listings.findBySymbol("BRK.B")).thenReturn(Uni.createFrom().item(List.of()));
+        when(client.search("BRK.B", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("BRK.B", "US", "USA", "USD"))));
 
-        EodhdResolvedSymbol result = await(resolver.resolve("BRK.B"));
-
-        assertEquals("BRK.B.US", result.providerSymbol());
-        verify(client, never()).search(any(), any(), any(), any());
+        assertEquals("BRK.B.US", await(resolver.resolve("BRK.B")).providerSymbol());
+        verify(client).search("BRK.B", API_KEY, "json", null);
     }
 
     @Test
-    void givenUnchangedPersistedMapping_whenResolvingAgain_thenSkipsSearch() {
-        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
-        when(listings.findBySymbol("AAPL")).thenReturn(Uni.createFrom().item(List.of(
-                new InstrumentListing("AAPL", "NASDAQ", "US", Currency.USD))));
-        when(client.search("AAPL", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
-                search("AAPL", "US", "USA", "USD"))));
-        await(resolver.resolve("AAPL"));
-        ArgumentCaptor<EodhdSymbolMapping> persisted = ArgumentCaptor.forClass(EodhdSymbolMapping.class);
-        verify(store).upsertSymbolMapping(persisted.capture());
-        Mockito.clearInvocations(client, store);
-        when(store.findSymbolMapping("AAPL"))
-                .thenReturn(Uni.createFrom().item(Optional.of(persisted.getValue())));
+    void givenPersistedMapping_whenResolving_thenReturnsItWithoutTouchingCatalogOrSearch() {
+        when(store.findSymbolMapping("AAPL")).thenReturn(Uni.createFrom().item(Optional.of(
+                new EodhdSymbolMapping("AAPL", "AAPL.US", "US", "USD",
+                        EodhdResolutionSource.TRANSACTION_METADATA, OffsetDateTime.now()))));
 
-        assertEquals("AAPL.US", await(resolver.resolve("AAPL")).providerSymbol());
+        assertEquals(new EodhdResolvedSymbol("AAPL", "AAPL.US", "US", "USD"), await(resolver.resolve("aapl")));
 
+        verify(catalog, never()).exchanges();
+        verify(listings, never()).findBySymbol(any());
         verify(client, never()).search(any(), any(), any(), any());
         verify(store, never()).upsertSymbolMapping(any());
     }
 
     @Test
-    void givenBlankCanonicalSymbol_whenResolving_thenFailsBeforeAnyDependencyCall() {
-        resolver.resolve(" ")
-                .subscribe().withSubscriber(UniAssertSubscriber.create())
-                .awaitFailure()
-                .assertFailedWith(MarketDataProviderError.SymbolResolution.class);
+    void givenOperatorManagedMapping_whenResolving_thenTrustsItWithoutRediscovery() {
+        when(store.findSymbolMapping("DELISTED")).thenReturn(Uni.createFrom().item(Optional.of(
+                new EodhdSymbolMapping("DELISTED", "DELISTED.US", "US", "USD",
+                        EodhdResolutionSource.MANUAL, OffsetDateTime.now()))));
 
+        assertEquals("DELISTED.US", await(resolver.resolve("DELISTED")).providerSymbol());
+
+        verify(client, never()).search(any(), any(), any(), any());
+    }
+
+    @Test
+    void givenBlankCanonicalSymbol_whenResolving_thenFailsBeforeAnyDependencyCall() {
+        assertResolutionFailure(resolver.resolve(" "));
+
+        verify(store, never()).findSymbolMapping(any());
         verify(catalog, never()).exchanges();
     }
 
@@ -216,10 +251,7 @@ class EodhdSymbolResolverTest {
                 search("ABC", "UNKNOWN", "USA", "USD"),
                 search("ABC", "US", "USA", "USD"))));
 
-        resolver.resolve("ABC")
-                .subscribe().withSubscriber(UniAssertSubscriber.create())
-                .awaitFailure()
-                .assertFailedWith(MarketDataProviderError.SymbolResolution.class);
+        assertResolutionFailure(resolver.resolve("ABC"));
     }
 
     @Test
@@ -272,19 +304,6 @@ class EodhdSymbolResolverTest {
     }
 
     @Test
-    void givenMalformedOrUnknownConfiguredOverride_whenResolving_thenFailsExplicitly() {
-        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
-        when(listings.findBySymbol(any())).thenReturn(Uni.createFrom().item(List.of()));
-
-        resolver = resolver(Map.of("ABC", "ABC"));
-        assertResolutionFailure(resolver.resolve("ABC"));
-        resolver = resolver(Map.of("ABC", "ABC."));
-        assertResolutionFailure(resolver.resolve("ABC"));
-        resolver = resolver(Map.of("ABC", "ABC.UNKNOWN"));
-        assertResolutionFailure(resolver.resolve("ABC"));
-    }
-
-    @Test
     void givenInactiveSearchExchange_whenResolvingNewMapping_thenRejectsIt() {
         EodhdExchange inactive = new EodhdExchange(
                 "US", "USA Stocks", null, "USA", "USD", "US", "USA", false, OffsetDateTime.now());
@@ -297,36 +316,34 @@ class EodhdSymbolResolverTest {
     }
 
     @Test
-    void givenConfigBackedOverride_whenUsingCdiConstructor_thenExtractsOnlyOverrideProperties() {
-        Config config = Mockito.mock(Config.class);
-        when(config.getPropertyNames()).thenReturn(List.of(
-                "application.other", "application.market-data.eodhd.symbol-overrides.abc"));
-        when(config.getOptionalValue("application.market-data.eodhd.symbol-overrides.abc", String.class))
-                .thenReturn(Optional.of("ABC.US"));
-        resolver = new EodhdSymbolResolver(
-                client, catalog, store, listings, currencyResolver, API_KEY,
-                new ReactiveRateLimiter("test", 60_000, Duration.ofMinutes(1)), config);
-        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange())));
-        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of()));
+    void givenExchangeHintMatchingSeveralExchanges_whenResolving_thenSendsNoSearchFilter() {
+        EodhdExchange duplicateName = new EodhdExchange(
+                "US2", "USA Stocks", null, "USA", "USD", "US", "USA", true, OffsetDateTime.now());
+        when(catalog.exchanges()).thenReturn(Uni.createFrom().item(List.of(usExchange(), duplicateName)));
+        when(listings.findBySymbol("ABC")).thenReturn(Uni.createFrom().item(List.of(
+                new InstrumentListing("ABC", "USA Stocks", "US", Currency.USD))));
+        when(client.search("ABC", API_KEY, "json", null)).thenReturn(Uni.createFrom().item(List.of(
+                search("ABC", "US", "USA", "USD"))));
 
         assertEquals("ABC.US", await(resolver.resolve("ABC")).providerSymbol());
-    }
-
-    private EodhdSymbolResolver resolver(Map<String, String> overrides) {
-        return new EodhdSymbolResolver(
-                client,
-                catalog,
-                store,
-                listings,
-                currencyResolver,
-                API_KEY,
-                new ReactiveRateLimiter("test", 60_000, Duration.ofMinutes(1)),
-                overrides);
+        verify(client).search("ABC", API_KEY, "json", null);
     }
 
     private EodhdExchange usExchange() {
         return new EodhdExchange(
                 "US", "USA Stocks", "XNAS,XNYS", "USA", "USD", "US", "USA", true,
+                OffsetDateTime.now());
+    }
+
+    private EodhdExchange lseExchange() {
+        return new EodhdExchange(
+                "LSE", "London Stock Exchange", "XLON", "UK", "GBX", "GB", "GBR", true,
+                OffsetDateTime.now());
+    }
+
+    private EodhdExchange madridExchange() {
+        return new EodhdExchange(
+                "MC", "Madrid Exchange", "XMAD", "Spain", "EUR", "ES", "ESP", true,
                 OffsetDateTime.now());
     }
 

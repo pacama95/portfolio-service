@@ -7,6 +7,7 @@ import com.portfolio.core.model.TransactionType;
 import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.UpdateTransactionUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
+import com.portfolio.core.ports.outgoing.ProviderSymbolMappingPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
@@ -37,11 +38,14 @@ class UpdateTransactionServiceTest {
 
     private final TransactionRepository repository = Mockito.mock(TransactionRepository.class);
     private final MarketDataPort marketDataPort = Mockito.mock(MarketDataPort.class);
+    private final ProviderSymbolMappingPort providerSymbolMappings =
+            Mockito.mock(ProviderSymbolMappingPort.class);
     private UpdateTransactionService service;
 
     @BeforeEach
     void setUp() {
-        service = new UpdateTransactionService(repository, marketDataPort);
+        when(providerSymbolMappings.invalidate(any())).thenReturn(Uni.createFrom().voidItem());
+        service = new UpdateTransactionService(repository, marketDataPort, providerSymbolMappings);
     }
 
     @Test
@@ -111,6 +115,63 @@ class UpdateTransactionServiceTest {
                 .getItem();
 
         assertInstanceOf(UpdateTransactionUseCase.Result.InvalidRequest.class, result);
+    }
+
+    @Test
+    void givenBlankListingMetadata_whenExecute_thenInvalidRequest() {
+        UUID id = UUID.randomUUID();
+
+        for (UpdateTransactionUseCase.Command command : List.of(
+                update(id, null, null, null, null, null, null, null, null, null, null, null, " ", null, null),
+                update(id, null, null, null, null, null, null, null, null, null, null, null, null, " ", null))) {
+            UpdateTransactionUseCase.Result result = service.execute(command)
+                    .subscribe().withSubscriber(UniAssertSubscriber.create())
+                    .awaitItem()
+                    .getItem();
+
+            assertInstanceOf(UpdateTransactionUseCase.Result.InvalidRequest.class, result);
+        }
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void givenSuccessfulUpdate_whenExecute_thenInvalidatesProviderSymbolMapping() {
+        UUID id = UUID.randomUUID();
+        stubExisting(id, fullTransaction(id));
+
+        service.execute(update(id, null, null, null, new BigDecimal("120"), null, null, null, null,
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem();
+
+        verify(providerSymbolMappings).invalidate("AAPL");
+    }
+
+    @Test
+    void givenRenamedTicker_whenExecute_thenInvalidatesBothOldAndNewSymbol() {
+        UUID id = UUID.randomUUID();
+        stubExisting(id, fullTransaction(id));
+
+        service.execute(update(id, "msft", null, null, null, null, null, null, null,
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem();
+
+        verify(providerSymbolMappings).invalidate("MSFT");
+        verify(providerSymbolMappings).invalidate("AAPL");
+    }
+
+    @Test
+    void givenMissingTransaction_whenExecute_thenLeavesProviderSymbolMappingAlone() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(USER, id)).thenReturn(Uni.createFrom().item(Optional.empty()));
+
+        service.execute(update(id, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem();
+
+        verify(providerSymbolMappings, never()).invalidate(any());
     }
 
     @Test

@@ -7,7 +7,6 @@ record EodhdSymbolMapping(
         String providerSymbol,
         String exchangeCode,
         String rawCurrency,
-        String metadataFingerprint,
         EodhdResolutionSource resolutionSource,
         OffsetDateTime resolvedAt
 ) {

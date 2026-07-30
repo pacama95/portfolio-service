@@ -26,8 +26,8 @@ public record CreateTransactionRequest(
         Boolean isFractional,
         BigDecimal fractionalMultiplier,
         Currency commissionCurrency,
-        String exchange,
-        String country,
+        @NotBlank @Size(max = 20) String exchange,
+        @NotBlank @Size(max = 50) String country,
         String companyName
 ) {
 }

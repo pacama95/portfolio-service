@@ -17,4 +17,7 @@ interface EodhdReferenceDataStore {
     Uni<Optional<EodhdSymbolMapping>> findSymbolMapping(String canonicalSymbol);
 
     Uni<Void> upsertSymbolMapping(EodhdSymbolMapping mapping);
+
+    /** Drops a resolved mapping. Operator-managed {@code MANUAL} rows are left untouched. */
+    Uni<Void> deleteResolvedSymbolMapping(String canonicalSymbol);
 }

@@ -26,9 +26,6 @@ class EodhdSymbolMappingEntity {
     @Column(name = "raw_currency", length = 10)
     String rawCurrency;
 
-    @Column(name = "metadata_fingerprint", length = 64)
-    String metadataFingerprint;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "resolution_source", nullable = false, length = 32)
     EodhdResolutionSource resolutionSource;

@@ -6,6 +6,7 @@ import com.portfolio.core.model.Transaction;
 import com.portfolio.core.model.TransactionType;
 import com.portfolio.core.model.UserId;
 import com.portfolio.core.ports.incoming.DeleteTransactionUseCase;
+import com.portfolio.core.ports.outgoing.ProviderSymbolMappingPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
@@ -24,6 +25,7 @@ import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DeleteTransactionServiceTest {
@@ -31,11 +33,14 @@ class DeleteTransactionServiceTest {
     private static final UserId USER = UserId.of("u1");
 
     private final TransactionRepository repository = Mockito.mock(TransactionRepository.class);
+    private final ProviderSymbolMappingPort providerSymbolMappings =
+            Mockito.mock(ProviderSymbolMappingPort.class);
     private DeleteTransactionService service;
 
     @BeforeEach
     void setUp() {
-        service = new DeleteTransactionService(repository);
+        when(providerSymbolMappings.invalidate(any())).thenReturn(Uni.createFrom().voidItem());
+        service = new DeleteTransactionService(repository, providerSymbolMappings);
     }
 
     @Test
@@ -53,6 +58,7 @@ class DeleteTransactionServiceTest {
                 .getItem();
 
         assertInstanceOf(DeleteTransactionUseCase.Result.Success.class, result);
+        verify(providerSymbolMappings).invalidate("AAPL");
     }
 
     @Test

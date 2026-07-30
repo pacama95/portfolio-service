@@ -9,6 +9,7 @@ import com.portfolio.core.model.event.TransactionCreatedEvent;
 import com.portfolio.core.ports.incoming.CreateTransactionUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
 import com.portfolio.core.ports.outgoing.TransactionEventPublisher;
+import com.portfolio.core.ports.outgoing.ProviderSymbolMappingPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
@@ -36,12 +37,16 @@ class CreateTransactionServiceTest {
     private final TransactionRepository repository = Mockito.mock(TransactionRepository.class);
     private final TransactionEventPublisher eventPublisher = Mockito.mock(TransactionEventPublisher.class);
     private final MarketDataPort marketDataPort = Mockito.mock(MarketDataPort.class);
+    private final ProviderSymbolMappingPort providerSymbolMappings =
+            Mockito.mock(ProviderSymbolMappingPort.class);
     private CreateTransactionService service;
 
     @BeforeEach
     void setUp() {
         when(eventPublisher.publishTransactionCreated(any())).thenReturn(Uni.createFrom().voidItem());
-        service = new CreateTransactionService(repository, eventPublisher, marketDataPort);
+        when(providerSymbolMappings.invalidate(any())).thenReturn(Uni.createFrom().voidItem());
+        service = new CreateTransactionService(
+                repository, eventPublisher, marketDataPort, providerSymbolMappings);
     }
 
     @Test
@@ -169,6 +174,45 @@ class CreateTransactionServiceTest {
                 .getItem();
 
         assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, result);
+    }
+
+    @Test
+    void givenMissingListingMetadata_whenExecute_thenInvalidRequest() {
+        for (CreateTransactionUseCase.Command command : List.of(
+                validCommandBuilder().exchange(null).build(),
+                validCommandBuilder().exchange(" ").build(),
+                validCommandBuilder().country(null).build(),
+                validCommandBuilder().country(" ").build())) {
+            CreateTransactionUseCase.Result result = service.execute(command)
+                    .subscribe().withSubscriber(UniAssertSubscriber.create())
+                    .awaitItem()
+                    .getItem();
+
+            assertInstanceOf(CreateTransactionUseCase.Result.InvalidRequest.class, result);
+        }
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void givenSuccessfulCreate_whenExecute_thenInvalidatesProviderSymbolMapping() {
+        when(repository.save(any(Transaction.class))).thenAnswer(invocation ->
+                Uni.createFrom().item(invocation.getArgument(0, Transaction.class)));
+        stubLock(Map.of());
+
+        service.execute(validCommandBuilder().ticker("aapl").build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem();
+
+        verify(providerSymbolMappings).invalidate("AAPL");
+    }
+
+    @Test
+    void givenRejectedCreate_whenExecute_thenLeavesProviderSymbolMappingAlone() {
+        service.execute(validCommandBuilder().ticker(null).build())
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem();
+
+        verify(providerSymbolMappings, never()).invalidate(any());
     }
 
     @Test
@@ -425,6 +469,8 @@ class CreateTransactionServiceTest {
         CommandBuilder fractional(Boolean fractional) { this.fractional = fractional; return this; }
         CommandBuilder fractionalMultiplier(BigDecimal fractionalMultiplier) { this.fractionalMultiplier = fractionalMultiplier; return this; }
         CommandBuilder commissionCurrency(Currency commissionCurrency) { this.commissionCurrency = commissionCurrency; return this; }
+        CommandBuilder exchange(String exchange) { this.exchange = exchange; return this; }
+        CommandBuilder country(String country) { this.country = country; return this; }
 
         CreateTransactionUseCase.Command build() {
             return new CreateTransactionUseCase.Command(

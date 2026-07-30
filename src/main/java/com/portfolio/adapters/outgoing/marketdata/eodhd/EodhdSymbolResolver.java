@@ -3,6 +3,7 @@ package com.portfolio.adapters.outgoing.marketdata.eodhd;
 import com.portfolio.adapters.common.ReactiveRateLimiter;
 import com.portfolio.adapters.outgoing.marketdata.adapter.MarketDataRateLimiters;
 import com.portfolio.core.application.service.CurrencyResolver;
+import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.InstrumentListing;
 import com.portfolio.core.ports.outgoing.InstrumentListingPort;
 import com.portfolio.core.ports.outgoing.MarketDataProviderError;
@@ -10,32 +11,34 @@ import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
-import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
+/**
+ * Translates a canonical ticker into EODHD's {@code TICKER.EXCHANGE} form.
+ *
+ * <p>A persisted mapping is authoritative and short-circuits everything else: writing a
+ * transaction for the ticker deletes the mapping, so nothing here has to detect staleness.
+ * Discovery runs only on a miss.
+ */
 @ApplicationScoped
 class EodhdSymbolResolver {
 
     private static final Logger LOG = Logger.getLogger(EodhdSymbolResolver.class);
-    private static final String OVERRIDE_PREFIX = "application.market-data.eodhd.symbol-overrides.";
     private static final Map<String, String> COUNTRY_CODES = countryCodes();
 
     private final EodhdClient client;
@@ -45,7 +48,6 @@ class EodhdSymbolResolver {
     private final CurrencyResolver currencyResolver;
     private final String apiKey;
     private final ReactiveRateLimiter rateLimiter;
-    private final Map<String, String> overrides;
 
     @Inject
     EodhdSymbolResolver(
@@ -55,20 +57,7 @@ class EodhdSymbolResolver {
             InstrumentListingPort listings,
             CurrencyResolver currencyResolver,
             @ConfigProperty(name = "application.market-data.eodhd.api-key") String apiKey,
-            @Named(MarketDataRateLimiters.EODHD) ReactiveRateLimiter rateLimiter,
-            Config config) {
-        this(client, catalog, store, listings, currencyResolver, apiKey, rateLimiter, extractOverrides(config));
-    }
-
-    EodhdSymbolResolver(
-            EodhdClient client,
-            EodhdExchangeCatalog catalog,
-            EodhdReferenceDataStore store,
-            InstrumentListingPort listings,
-            CurrencyResolver currencyResolver,
-            String apiKey,
-            ReactiveRateLimiter rateLimiter,
-            Map<String, String> overrides) {
+            @Named(MarketDataRateLimiters.EODHD) ReactiveRateLimiter rateLimiter) {
         this.client = client;
         this.catalog = catalog;
         this.store = store;
@@ -76,7 +65,6 @@ class EodhdSymbolResolver {
         this.currencyResolver = currencyResolver;
         this.apiKey = apiKey;
         this.rateLimiter = rateLimiter;
-        this.overrides = normalizeOverrides(overrides);
     }
 
     Uni<EodhdResolvedSymbol> resolve(String symbol) {
@@ -85,138 +73,94 @@ class EodhdSymbolResolver {
             return Uni.createFrom().failure(
                     new MarketDataProviderError.SymbolResolution(canonical, "canonical symbol is blank"));
         }
+        return store.findSymbolMapping(canonical).flatMap(cached -> {
+            if (cached.isPresent()) {
+                LOG.debugf("Reusing EODHD symbol mapping symbol=%s source=%s",
+                        canonical, cached.get().resolutionSource());
+                return Uni.createFrom().item(toResolved(cached.get()));
+            }
+            return discover(canonical);
+        });
+    }
+
+    private Uni<EodhdResolvedSymbol> discover(String canonical) {
         // Both adapters use Hibernate Reactive and may join the same request-scoped session.
         // Reactive sessions do not support concurrent queries, so load these inputs in sequence.
         return catalog.exchanges().flatMap(exchanges -> listings.findBySymbol(canonical)
-                .flatMap(instrumentListings -> resolve(canonical, exchanges, instrumentListings)));
-    }
-
-    private Uni<EodhdResolvedSymbol> resolve(
-            String canonical,
-            List<EodhdExchange> exchanges,
-            List<InstrumentListing> instrumentListings) {
-        String fingerprint = fingerprint(instrumentListings);
-        String override = overrides.get(canonical);
-        if (override != null) {
-            return persist(canonical, overrideMapping(canonical, override, fingerprint, exchanges));
-        }
-        return store.findSymbolMapping(canonical).flatMap(cached -> {
-            if (cached.filter(mapping -> mappingIsReusable(mapping, fingerprint, exchanges)).isPresent()) {
-                EodhdSymbolMapping mapping = cached.orElseThrow();
-                LOG.debugf("Reusing EODHD symbol mapping symbol=%s source=%s",
-                        canonical, mapping.resolutionSource());
-                return Uni.createFrom().item(toResolved(mapping));
-            }
-            ListingHints hints = listingHints(canonical, instrumentListings);
-            String exchangeFilter = exchangeFilter(hints, exchanges).orElse(null);
-            return rateLimiter.acquire()
-                    .onFailure(ReactiveRateLimiter.RateLimitExceededException.class)
-                    .transform(failure -> new MarketDataProviderError.RateLimited(
-                            canonical,
-                            ((ReactiveRateLimiter.RateLimitExceededException) failure).retryAfter()))
-                    .chain(() -> client.search(canonical, apiKey, "json", exchangeFilter))
-                    .onFailure().transform(failure -> EodhdFailureMapper.translate(failure, canonical))
-                    .map(results -> choose(canonical, results, hints, exchanges, fingerprint))
-                    .flatMap(mapping -> persist(canonical, mapping));
-        });
+                .flatMap(instrumentListings -> {
+                    ListingHints hints = listingHints(canonical, instrumentListings);
+                    Map<String, ExchangeAliases> active = activeExchanges(exchanges);
+                    String exchangeFilter = exchangeFilter(hints, active.values());
+                    return rateLimiter.acquire()
+                            .onFailure(ReactiveRateLimiter.RateLimitExceededException.class)
+                            .transform(failure -> new MarketDataProviderError.RateLimited(
+                                    canonical, failure.retryAfter()))
+                            .chain(() -> client.search(canonical, apiKey, "json", exchangeFilter))
+                            .onFailure().transform(failure -> EodhdFailureMapper.translate(failure, canonical))
+                            .map(results -> choose(canonical, results, hints, active))
+                            .flatMap(mapping -> persist(canonical, mapping));
+                }));
     }
 
     private EodhdSymbolMapping choose(
             String canonical,
             List<EodhdSearchResponse> results,
             ListingHints hints,
-            List<EodhdExchange> exchanges,
-            String fingerprint) {
+            Map<String, ExchangeAliases> activeExchanges) {
         if (results == null) {
             throw new MarketDataProviderError.MissingData(canonical, "search results");
         }
-        Map<String, EodhdExchange> activeExchanges = new HashMap<>();
-        for (EodhdExchange exchange : exchanges) {
-            if (exchange.active()) {
-                activeExchanges.put(normalize(exchange.code()), exchange);
-            }
-        }
-        List<SearchCandidate> candidates = new ArrayList<>();
+        List<Candidate> candidates = new ArrayList<>();
         for (EodhdSearchResponse result : results) {
             if (result.code() == null || !canonical.equalsIgnoreCase(result.code().trim())) {
                 continue;
             }
-            if (result.exchange() == null || result.exchange().isBlank()) {
+            ExchangeAliases exchange = activeExchanges.get(normalize(result.exchange()));
+            if (exchange == null || !matchesCountry(hints, result, exchange)
+                    || !matchesCurrency(hints, result, exchange)) {
                 continue;
             }
-            EodhdExchange exchange = activeExchanges.get(normalize(result.exchange()));
-            if (exchange == null || !matchesHints(result, exchange, hints)) {
-                continue;
-            }
-            candidates.add(new SearchCandidate(result, exchange));
+            candidates.add(new Candidate(result, exchange));
         }
 
-        Map<String, SearchCandidate> uniqueBySymbol = new LinkedHashMap<>();
-        for (SearchCandidate candidate : candidates) {
-            uniqueBySymbol.putIfAbsent(
-                    canonical + "." + normalize(candidate.exchange().code()),
-                    candidate);
-        }
-        if (uniqueBySymbol.size() != 1) {
+        // Broker exchange labels ("NASDAQ", "BOLSA DE MADRID") often match neither EODHD's
+        // aggregate exchange code nor its MICs, so the exchange hint only narrows an otherwise
+        // ambiguous result; it never discards the last candidate country and currency accepted.
+        List<Candidate> narrowed = candidates.stream()
+                .filter(candidate -> hints.exchange() != null && candidate.exchange().matches(hints.exchange()))
+                .toList();
+        Map<String, Candidate> selected = new LinkedHashMap<>();
+        (narrowed.isEmpty() ? candidates : narrowed)
+                .forEach(candidate -> selected.putIfAbsent(candidate.exchange().code(), candidate));
+
+        if (selected.size() != 1) {
             throw new MarketDataProviderError.SymbolResolution(
                     canonical,
-                    uniqueBySymbol.isEmpty() ? "no exact active search result" : "ambiguous exact search results");
+                    selected.isEmpty() ? "no exact active search result" : "ambiguous exact search results");
         }
-        SearchCandidate selected = uniqueBySymbol.values().iterator().next();
-        String exchangeCode = normalize(selected.exchange().code());
-        String rawCurrency = firstNonBlank(selected.response().currency(), selected.exchange().currency());
+        Candidate chosen = selected.values().iterator().next();
         return new EodhdSymbolMapping(
                 canonical,
-                canonical + "." + exchangeCode,
-                exchangeCode,
-                rawCurrency,
-                fingerprint,
-                hints.hasMetadata()
-                        ? EodhdResolutionSource.TRANSACTION_METADATA
+                canonical + "." + chosen.exchange().code(),
+                chosen.exchange().code(),
+                firstNonBlank(chosen.response().currency(), chosen.exchange().currency()),
+                hints.hasHints() ? EodhdResolutionSource.TRANSACTION_METADATA
                         : EodhdResolutionSource.UNIQUE_SEARCH,
                 OffsetDateTime.now());
     }
 
-    private boolean matchesHints(EodhdSearchResponse result, EodhdExchange exchange, ListingHints hints) {
-        if (!hints.hasMetadata()) {
+    private boolean matchesCountry(ListingHints hints, EodhdSearchResponse result, ExchangeAliases exchange) {
+        if (hints.country() == null) {
             return true;
         }
-        boolean exchangeMatch = hints.exchange() == null || matchesExchange(hints.exchange(), result, exchange);
-        boolean countryMatch = hints.country() == null || matchesCountry(hints.country(), result, exchange);
-        boolean currencyMatch = hints.currency() == null || matchesCurrency(hints, result, exchange);
-        // Broker exchange labels such as NASDAQ do not necessarily match EODHD's aggregate `US`
-        // exchange code or its ISO MICs. Country + currency may therefore establish the same
-        // listing, but only uniqueness can ultimately select it.
-        return currencyMatch && countryMatch && (exchangeMatch || (hints.country() != null && hints.currency() != null));
+        String expected = normalizeCountry(hints.country());
+        return expected.equals(normalizeCountry(result.country())) || exchange.countries().contains(expected);
     }
 
-    private boolean matchesExchange(String listingExchange, EodhdSearchResponse result, EodhdExchange exchange) {
-        String expected = normalize(listingExchange);
-        if (expected.equals(normalize(result.exchange()))
-                || expected.equals(normalize(exchange.code()))
-                || expected.equals(normalize(exchange.name()))) {
+    private boolean matchesCurrency(ListingHints hints, EodhdSearchResponse result, ExchangeAliases exchange) {
+        if (hints.currency() == null) {
             return true;
         }
-        if (exchange.operatingMic() == null) {
-            return false;
-        }
-        for (String mic : exchange.operatingMic().split(",")) {
-            if (expected.equals(normalize(mic))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean matchesCountry(String listingCountry, EodhdSearchResponse result, EodhdExchange exchange) {
-        String expected = normalizeCountry(listingCountry);
-        return expected.equals(normalizeCountry(result.country()))
-                || expected.equals(normalizeCountry(exchange.country()))
-                || expected.equals(normalizeCountry(exchange.countryIso2()))
-                || expected.equals(normalizeCountry(exchange.countryIso3()));
-    }
-
-    private boolean matchesCurrency(ListingHints hints, EodhdSearchResponse result, EodhdExchange exchange) {
         String rawCurrency = firstNonBlank(result.currency(), exchange.currency());
         return rawCurrency != null
                 && currencyResolver.resolve(rawCurrency)
@@ -225,68 +169,61 @@ class EodhdSymbolResolver {
     }
 
     private ListingHints listingHints(String canonical, List<InstrumentListing> instrumentListings) {
-        Set<String> exchanges = distinctNonBlank(instrumentListings.stream().map(InstrumentListing::exchange).toList());
-        Set<String> countries = distinctCountries(instrumentListings.stream().map(InstrumentListing::country).toList());
-        Set<com.portfolio.core.model.Currency> currencies = new TreeSet<>();
-        instrumentListings.stream().map(InstrumentListing::currency).filter(java.util.Objects::nonNull)
+        Set<String> exchanges = distinct(instrumentListings, InstrumentListing::exchange, EodhdSymbolResolver::normalize);
+        Set<String> countries = distinct(instrumentListings, InstrumentListing::country,
+                EodhdSymbolResolver::normalizeCountry);
+        Set<Currency> currencies = new TreeSet<>();
+        instrumentListings.stream().map(InstrumentListing::currency).filter(Objects::nonNull)
                 .forEach(currencies::add);
         if (exchanges.size() > 1 || countries.size() > 1 || currencies.size() > 1) {
             throw new MarketDataProviderError.SymbolResolution(canonical, "conflicting transaction listing metadata");
         }
-        InstrumentListing first = instrumentListings.isEmpty() ? null : instrumentListings.getFirst();
         return new ListingHints(
-                exchanges.isEmpty() ? null : exchanges.iterator().next(),
-                countries.isEmpty() ? null : countries.iterator().next(),
-                first == null ? null : first.currency(),
-                !instrumentListings.isEmpty());
+                first(exchanges),
+                first(countries),
+                currencies.isEmpty() ? null : currencies.iterator().next());
     }
 
-    private Optional<String> exchangeFilter(ListingHints hints, List<EodhdExchange> exchanges) {
+    /** Every label EODHD or a broker might use for one exchange, so hint matching is one lookup. */
+    private Map<String, ExchangeAliases> activeExchanges(List<EodhdExchange> exchanges) {
+        Map<String, ExchangeAliases> active = new LinkedHashMap<>();
+        for (EodhdExchange exchange : exchanges) {
+            if (!exchange.active()) {
+                continue;
+            }
+            String code = normalize(exchange.code());
+            Set<String> aliases = new TreeSet<>();
+            aliases.add(code);
+            addIfPresent(aliases, normalize(exchange.name()));
+            if (exchange.operatingMic() != null) {
+                for (String mic : exchange.operatingMic().split(",")) {
+                    addIfPresent(aliases, normalize(mic));
+                }
+            }
+            Set<String> countries = new TreeSet<>();
+            addIfPresent(countries, normalizeCountry(exchange.country()));
+            addIfPresent(countries, normalizeCountry(exchange.countryIso2()));
+            addIfPresent(countries, normalizeCountry(exchange.countryIso3()));
+            active.put(code, new ExchangeAliases(code, exchange.currency(), aliases, countries));
+        }
+        return active;
+    }
+
+    /** EODHD supports an exchange filter, but only when the hint maps to exactly one exchange. */
+    private String exchangeFilter(ListingHints hints, Iterable<ExchangeAliases> exchanges) {
         if (hints.exchange() == null) {
-            return Optional.empty();
+            return null;
         }
-        List<EodhdExchange> matches = exchanges.stream()
-                .filter(EodhdExchange::active)
-                .filter(exchange -> matchesExchange(
-                        hints.exchange(),
-                        new EodhdSearchResponse(null, exchange.code(), null, null, null, null, null, null),
-                        exchange))
-                .toList();
-        return matches.size() == 1 ? Optional.of(matches.getFirst().code()) : Optional.empty();
-    }
-
-    private EodhdSymbolMapping overrideMapping(
-            String canonical,
-            String providerSymbol,
-            String fingerprint,
-            List<EodhdExchange> exchanges) {
-        int separator = providerSymbol.lastIndexOf('.');
-        if (separator < 1 || separator == providerSymbol.length() - 1) {
-            throw new MarketDataProviderError.SymbolResolution(canonical, "configured override is not qualified");
+        String match = null;
+        for (ExchangeAliases exchange : exchanges) {
+            if (exchange.matches(hints.exchange())) {
+                if (match != null) {
+                    return null;
+                }
+                match = exchange.code();
+            }
         }
-        String exchangeCode = normalize(providerSymbol.substring(separator + 1));
-        EodhdExchange exchange = exchanges.stream()
-                .filter(candidate -> exchangeCode.equals(normalize(candidate.code())))
-                .findFirst()
-                .orElseThrow(() -> new MarketDataProviderError.SymbolResolution(
-                        canonical, "configured override uses an unknown exchange code"));
-        return new EodhdSymbolMapping(
-                canonical,
-                providerSymbol.trim().toUpperCase(Locale.ROOT),
-                exchangeCode,
-                exchange.currency(),
-                fingerprint,
-                EodhdResolutionSource.CONFIG_OVERRIDE,
-                OffsetDateTime.now());
-    }
-
-    private boolean mappingIsReusable(
-            EodhdSymbolMapping mapping,
-            String fingerprint,
-            List<EodhdExchange> exchanges) {
-        return fingerprint.equals(mapping.metadataFingerprint())
-                && exchanges.stream().anyMatch(exchange ->
-                normalize(exchange.code()).equals(normalize(mapping.exchangeCode())));
+        return match;
     }
 
     private Uni<EodhdResolvedSymbol> persist(String canonical, EodhdSymbolMapping mapping) {
@@ -304,42 +241,28 @@ class EodhdSymbolResolver {
                 mapping.rawCurrency());
     }
 
-    private String fingerprint(List<InstrumentListing> instrumentListings) {
-        List<String> normalized = instrumentListings.stream()
-                .map(listing -> String.join("|",
-                        normalize(listing.symbol()),
-                        normalize(listing.exchange()),
-                        normalize(listing.country()),
-                        listing.currency() == null ? "" : listing.currency().name()))
-                .sorted(Comparator.naturalOrder())
-                .toList();
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(String.join("\n", normalized)
-                    .getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 unavailable", impossible);
-        }
-    }
-
-    private Set<String> distinctNonBlank(List<String> values) {
+    private static Set<String> distinct(
+            List<InstrumentListing> listings,
+            Function<InstrumentListing, String> field,
+            UnaryOperator<String> normalizer) {
         Set<String> distinct = new TreeSet<>();
-        for (String value : values) {
+        for (InstrumentListing listing : listings) {
+            String value = field.apply(listing);
             if (value != null && !value.isBlank()) {
-                distinct.add(normalize(value));
+                distinct.add(normalizer.apply(value));
             }
         }
         return distinct;
     }
 
-    private Set<String> distinctCountries(List<String> values) {
-        Set<String> distinct = new TreeSet<>();
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                distinct.add(normalizeCountry(value));
-            }
+    private static String first(Set<String> values) {
+        return values.isEmpty() ? null : values.iterator().next();
+    }
+
+    private static void addIfPresent(Set<String> target, String value) {
+        if (value != null && !value.isBlank()) {
+            target.add(value);
         }
-        return distinct;
     }
 
     /**
@@ -369,24 +292,6 @@ class EodhdSymbolResolver {
         return normalize(value).replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
-    private static Map<String, String> extractOverrides(Config config) {
-        Map<String, String> values = new HashMap<>();
-        for (String propertyName : config.getPropertyNames()) {
-            if (propertyName.startsWith(OVERRIDE_PREFIX)) {
-                String symbol = propertyName.substring(OVERRIDE_PREFIX.length());
-                config.getOptionalValue(propertyName, String.class)
-                        .ifPresent(value -> values.put(symbol, value));
-            }
-        }
-        return values;
-    }
-
-    private static Map<String, String> normalizeOverrides(Map<String, String> overrides) {
-        Map<String, String> normalized = new HashMap<>();
-        overrides.forEach((symbol, providerSymbol) -> normalized.put(normalize(symbol), providerSymbol));
-        return Map.copyOf(normalized);
-    }
-
     private static String normalize(String value) {
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
     }
@@ -398,14 +303,20 @@ class EodhdSymbolResolver {
         return second == null || second.isBlank() ? null : second.trim();
     }
 
-    private record ListingHints(
-            String exchange,
-            String country,
-            com.portfolio.core.model.Currency currency,
-            boolean hasMetadata
-    ) {
+    private record ListingHints(String exchange, String country, Currency currency) {
+
+        boolean hasHints() {
+            return exchange != null || country != null || currency != null;
+        }
     }
 
-    private record SearchCandidate(EodhdSearchResponse response, EodhdExchange exchange) {
+    private record ExchangeAliases(String code, String currency, Set<String> aliases, Set<String> countries) {
+
+        boolean matches(String label) {
+            return aliases.contains(normalize(label));
+        }
+    }
+
+    private record Candidate(EodhdSearchResponse response, ExchangeAliases exchange) {
     }
 }

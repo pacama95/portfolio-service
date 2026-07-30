@@ -59,10 +59,10 @@ public class TransactionEntity {
     @Column(name = "commission_currency", columnDefinition = "currency_type")
     public CurrencyDb commissionCurrency;
 
-    @Column(length = 20)
+    @Column(length = 20, nullable = false)
     public String exchange;
 
-    @Column(length = 50)
+    @Column(length = 50, nullable = false)
     public String country;
 
     @Column(name = "company_name")

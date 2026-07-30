@@ -5,6 +5,7 @@ import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.Transaction;
 import com.portfolio.core.ports.incoming.UpdateTransactionUseCase;
 import com.portfolio.core.ports.outgoing.MarketDataPort;
+import com.portfolio.core.ports.outgoing.ProviderSymbolMappingPort;
 import com.portfolio.core.ports.outgoing.TransactionRepository;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -24,10 +25,15 @@ public class UpdateTransactionService implements UpdateTransactionUseCase {
 
     private final TransactionRepository transactionRepository;
     private final MarketDataPort marketDataPort;
+    private final ProviderSymbolMappingPort providerSymbolMappings;
 
-    public UpdateTransactionService(TransactionRepository transactionRepository, MarketDataPort marketDataPort) {
+    public UpdateTransactionService(
+            TransactionRepository transactionRepository,
+            MarketDataPort marketDataPort,
+            ProviderSymbolMappingPort providerSymbolMappings) {
         this.transactionRepository = transactionRepository;
         this.marketDataPort = marketDataPort;
+        this.providerSymbolMappings = providerSymbolMappings;
     }
 
     @Override
@@ -39,6 +45,14 @@ public class UpdateTransactionService implements UpdateTransactionUseCase {
         }
         if (command.price() != null && command.price().compareTo(BigDecimal.ZERO) < 0) {
             return Uni.createFrom().item(new Result.InvalidRequest("price cannot be negative"));
+        }
+        // Omitting these keeps the stored values; blanking them out would leave the ticker
+        // unresolvable for market data.
+        if (command.exchange() != null && command.exchange().isBlank()) {
+            return Uni.createFrom().item(new Result.InvalidRequest("exchange cannot be blank"));
+        }
+        if (command.country() != null && command.country().isBlank()) {
+            return Uni.createFrom().item(new Result.InvalidRequest("country cannot be blank"));
         }
 
         return transactionRepository.findById(command.userId(), command.id())
@@ -142,7 +156,21 @@ public class UpdateTransactionService implements UpdateTransactionUseCase {
                     return rejectionFor(LedgerReplay.replayTicker(combined), updated)
                             .<Uni<Result>>map(Uni.createFrom()::item)
                             .orElseGet(() -> save(updated));
-                });
+                })
+                .call(result -> result instanceof Result.Success
+                        ? invalidateSymbolMappings(existing, updated)
+                        : Uni.createFrom().voidItem());
+    }
+
+    /**
+     * A rename changes the listing metadata behind both tickers: the new one gains this
+     * transaction's exchange/country, the old one loses it.
+     */
+    private Uni<Void> invalidateSymbolMappings(Transaction existing, Transaction updated) {
+        Uni<Void> invalidated = providerSymbolMappings.invalidate(updated.ticker());
+        return updated.ticker().equals(existing.ticker())
+                ? invalidated
+                : invalidated.chain(() -> providerSymbolMappings.invalidate(existing.ticker()));
     }
 
     private Uni<Result> save(Transaction updated) {
