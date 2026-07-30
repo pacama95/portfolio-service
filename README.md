@@ -92,13 +92,15 @@ Integration tests (Docker required — Testcontainers Postgres + WireMock):
 
 `./gradlew build` runs unit tests, JaCoCo verification, then integration tests, and prints a summary to the console (also written to `build/reports/build-summary.txt`). ITs use DBRider datasets under `src/integrationTest/resources/datasets/` and programmatic WireMock for both providers.
 
-Provider routing is covered end to end under every chain: `MarketDataProviderFlowIT` runs the
-default `twelvedata,eodhd` chain, `EodhdOnlyFlowIT` a single-provider chain (where unresolved
-symbols surface as 422 and rate limits as 503 + `Retry-After`), and `EodhdPrimaryFlowIT` the
-reversed `eodhd,twelvedata` chain — each boots its own Quarkus test profile. `ProviderStubs`
-is the shared vocabulary for these tests: whole-provider outages (`twelveDataDown`, `eodhdDown`),
-symbol-scoped quote/series stubs for either provider, and traffic proofs
-(`verifyNoTwelveDataTraffic`, `verifyNoEodhdTraffic`).
+Provider routing is covered end to end under every chain, each booting its own Quarkus test
+profile: `MarketDataProviderFlowIT` runs the default `twelvedata,eodhd` fallback chain,
+`EodhdPrimaryFlowIT` the reversed `eodhd,twelvedata` chain, `EodhdOnlyFlowIT` EODHD alone
+(where unresolved symbols surface as 422 and rate limits as 503 + `Retry-After`), and
+`TwelveDataOnlyFlowIT` the rollback configuration, proving EODHD stays fully inert — zero HTTP
+traffic and empty reference tables — even while TwelveData fails. `ProviderStubs` is the shared
+vocabulary for these tests: whole-provider outages (`twelveDataDown`, `eodhdDown`,
+`twelveDataRateLimited`), symbol-scoped quote/series stubs for either provider, and traffic
+proofs (`verifyNoTwelveDataTraffic`, `verifyNoEodhdTraffic`).
 
 ## Market-data providers
 

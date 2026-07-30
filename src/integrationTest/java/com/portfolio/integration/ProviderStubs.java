@@ -49,6 +49,21 @@ public final class ProviderStubs {
                 .willReturn(aResponse().withStatus(500)));
     }
 
+    /**
+     * Every TwelveData endpoint reports its credit limit the way the real API does:
+     * HTTP 200 with an error body. Applies to all operations — every response DTO carries
+     * {@code code}/{@code status} and goes through the same error check.
+     */
+    public static void twelveDataRateLimited() {
+        for (String path : TWELVE_DATA_PATHS) {
+            server().stubFor(WireMock.get(urlPathEqualTo(path))
+                    .atPriority(1)
+                    .willReturn(okJson("{\"code\":429,"
+                            + "\"message\":\"You have run out of API credits for the current minute.\","
+                            + "\"status\":\"error\"}")));
+        }
+    }
+
     // --- TwelveData, per symbol ---
 
     public static void twelveDataSpot(String symbol, String price) {
