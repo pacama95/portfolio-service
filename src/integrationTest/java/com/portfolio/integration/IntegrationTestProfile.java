@@ -18,6 +18,9 @@ public class IntegrationTestProfile implements QuarkusTestProfile {
                 Map.entry("quarkus.http.host", "localhost"),
                 Map.entry("quarkus.http.test-port", "18087"),
                 Map.entry("quarkus.http.test-host", "localhost"),
+                // Integration tests pin the chain they assert on rather than inheriting whichever
+                // providers production happens to be configured for.
+                Map.entry("application.market-data.providers", "twelvedata,eodhd"),
                 Map.entry("application.market-data.twelve-data.api-key", "test-api-key"),
                 Map.entry("application.market-data.eodhd.api-key", "test-eodhd-api-key"),
                 Map.entry("application.portfolio.base-currency", "USD"),

@@ -41,8 +41,7 @@ public class OrderedMarketDataProviderRouter implements MarketDataProviderPort, 
     public OrderedMarketDataProviderRouter(
             @MarketDataProviderAdapter(TWELVE_DATA) MarketDataProviderPort twelveData,
             @MarketDataProviderAdapter(EODHD) MarketDataProviderPort eodhd,
-            @ConfigProperty(name = "application.market-data.providers", defaultValue = "twelvedata,eodhd")
-            String configuredProviders,
+            @ConfigProperty(name = "application.market-data.providers") String configuredProviders,
             Config config) {
         this(twelveData, eodhd, configuredProviders);
         validateCredentials(config);
