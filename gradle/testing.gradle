@@ -35,6 +35,15 @@ jacoco {
 
 jacocoTestReport {
     dependsOn test
+    // classDirectories is rebuilt below (afterEvaluate) from sourceSets.main.output filtered by
+    // jacocoExcludes. That rebuild resolves the file collection eagerly via `.files`, which
+    // discards the task-dependency metadata sourceSets.main.output normally carries back to
+    // compileJava/processResources. Everyday `./gradlew build` never notices, because `test`
+    // already depends on compileJava/processResources transitively -- but `./gradlew build
+    // -x test -Dquarkus.package.type=native` (the native image Dockerfile's own command) excludes
+    // `test`, severing that path, and Gradle then can't guarantee compileJava/processResources run
+    // first. Declaring the dependency explicitly closes the gap regardless of what excludes `test`.
+    dependsOn compileJava, processResources
     reports {
         xml.required = true
         html.required = true
@@ -49,6 +58,8 @@ jacocoTestReport {
 
 jacocoTestCoverageVerification {
     dependsOn jacocoTestReport
+    // Same eager classDirectories rebuild as jacocoTestReport, same fix.
+    dependsOn compileJava, processResources
     violationRules {
         rule {
             limit {
