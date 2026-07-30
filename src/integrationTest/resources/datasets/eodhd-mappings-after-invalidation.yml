@@ -1,0 +1,13 @@
+# After transaction writes touched AAPL and DELISTED: the resolver-created AAPL mapping is
+# gone, the operator's MANUAL row survived, and the untouched TSLA mapping is intact.
+eodhd_symbol_mappings:
+  - canonical_symbol: "DELISTED"
+    provider_symbol: "DELISTED.US"
+    exchange_code: "US"
+    raw_currency: "USD"
+    resolution_source: "MANUAL"
+  - canonical_symbol: "TSLA"
+    provider_symbol: "TSLA.US"
+    exchange_code: "US"
+    raw_currency: "USD"
+    resolution_source: "UNIQUE_SEARCH"

@@ -1,0 +1,41 @@
+# EODHD reference data as it looks after a catalog refresh and some resolutions:
+# two exchanges, two resolver-created mappings, and one operator-inserted MANUAL row.
+eodhd_exchanges:
+  - code: "US"
+    name: "USA Stocks"
+    operating_mic: "XNAS,XNYS"
+    country: "USA"
+    currency: "USD"
+    country_iso2: "US"
+    country_iso3: "USA"
+    active: true
+    fetched_at: "2024-01-01 12:00:00"
+  - code: "LSE"
+    name: "London Stock Exchange"
+    operating_mic: "XLON"
+    country: "UK"
+    currency: "GBX"
+    country_iso2: "GB"
+    country_iso3: "GBR"
+    active: true
+    fetched_at: "2024-01-01 12:00:00"
+
+eodhd_symbol_mappings:
+  - canonical_symbol: "AAPL"
+    provider_symbol: "AAPL.US"
+    exchange_code: "US"
+    raw_currency: "USD"
+    resolution_source: "UNIQUE_SEARCH"
+    resolved_at: "2024-01-01 12:00:00"
+  - canonical_symbol: "TSLA"
+    provider_symbol: "TSLA.US"
+    exchange_code: "US"
+    raw_currency: "USD"
+    resolution_source: "UNIQUE_SEARCH"
+    resolved_at: "2024-01-01 12:00:00"
+  - canonical_symbol: "DELISTED"
+    provider_symbol: "DELISTED.US"
+    exchange_code: "US"
+    raw_currency: "USD"
+    resolution_source: "MANUAL"
+    resolved_at: "2024-01-01 12:00:00"

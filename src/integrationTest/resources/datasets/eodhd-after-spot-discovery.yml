@@ -1,0 +1,15 @@
+# After a spot-price fallback that had to discover the symbol: the transaction metadata drove
+# the search, the mapping was persisted, and the quote records EODHD as its provider.
+eodhd_symbol_mappings:
+  - canonical_symbol: "AAPL"
+    provider_symbol: "AAPL.US"
+    exchange_code: "US"
+    raw_currency: "USD"
+    resolution_source: "TRANSACTION_METADATA"
+
+spot_quotes:
+  - kind: "PRICE"
+    symbol: "AAPL"
+    value: 190.5
+    source: "PROVIDER"
+    provider: "eodhd"

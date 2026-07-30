@@ -1,0 +1,15 @@
+# After a price-history fallback served through a pre-existing mapping: bars persisted with
+# EODHD provenance. The coverage row is asserted separately (its key column differs).
+price_history:
+  - symbol: "AAPL"
+    price_date: "2024-01-01"
+    close_price: 111.500000
+    adjusted_close_price: 111.500000
+    currency: "USD"
+    provider: "eodhd"
+  - symbol: "AAPL"
+    price_date: "2024-01-02"
+    close_price: 112.250000
+    adjusted_close_price: 112.250000
+    currency: "USD"
+    provider: "eodhd"
