@@ -1,0 +1,20 @@
+# Self-contained EODHD reference data for the BARC scenarios: the LSE exchange and an
+# already-resolved mapping whose raw currency is pence sterling.
+eodhd_exchanges:
+  - code: "LSE"
+    name: "London Stock Exchange"
+    operating_mic: "XLON"
+    country: "UK"
+    currency: "GBX"
+    country_iso2: "GB"
+    country_iso3: "GBR"
+    active: true
+    fetched_at: "2024-01-01 12:00:00"
+
+eodhd_symbol_mappings:
+  - canonical_symbol: "BARC"
+    provider_symbol: "BARC.LSE"
+    exchange_code: "LSE"
+    raw_currency: "GBX"
+    resolution_source: "TRANSACTION_METADATA"
+    resolved_at: "2024-01-01 12:00:00"

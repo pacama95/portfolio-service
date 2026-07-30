@@ -7,6 +7,7 @@ import com.github.database.rider.core.api.dataset.ExpectedDataSet;
 import com.github.database.rider.junit5.api.DBRider;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.portfolio.integration.IntegrationTestProfile;
+import com.portfolio.integration.ProviderStubs;
 import com.portfolio.integration.WireMockMarketDataResource;
 import io.agroal.api.AgroalDataSource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -348,6 +349,35 @@ class MarketDataProviderFlowIT {
         WireMockMarketDataResource.server.verify(0, getRequestedFor(urlPathMatching("/api/.*")));
         assertEquals("twelvedata", scalar(
                 "select distinct provider from price_history where symbol = 'AAPL'"));
+    }
+
+    @Test
+    @DataSet(cleanBefore = true, executeScriptsBefore = "datasets/transactions-barc-seed.sql")
+    void givenGbpPosition_whenGetValuation_thenPricesAndFxBothTravelThroughTwelveData()
+            throws Exception {
+        ProviderStubs.twelveDataSeries("BARC", "GBP", "2024-01-02:2.525", "2024-01-01:2.5");
+        ProviderStubs.twelveDataSeries("GBP/USD", "USD", "2024-01-02:1.28", "2024-01-01:1.25");
+
+        given()
+                .header("X-User-Id", USER_A)
+                .queryParam("from", "2024-01-01")
+                .queryParam("to", "2024-01-02")
+                .when()
+                .get("/api/daily-history/portfolio/valuation")
+                .then()
+                .statusCode(200)
+                .body("$", hasSize(2))
+                .body("[0].valuationCurrency", equalTo("USD"))
+                // 10 shares x 2.50 GBP x 1.25, then x 2.525 x 1.28
+                .body("[0].totalMarketValue", equalTo(31.25f))
+                .body("[1].totalMarketValue", equalTo(32.32f));
+
+        ProviderStubs.verifyNoEodhdTraffic();
+        assertEquals("twelvedata", scalar(
+                "select distinct provider from price_history where symbol = 'BARC'"));
+        assertEquals("twelvedata", scalar(
+                "select distinct provider from fx_rate_history "
+                        + "where base_currency = 'GBP' and quote_currency = 'USD'"));
     }
 
     @Test
