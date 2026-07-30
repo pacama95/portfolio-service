@@ -67,14 +67,7 @@ class EodhdReferenceDataStoreIT {
     @RunOnVertxContext
     @DataSet(cleanBefore = true)
     void givenResolvedSymbol_whenUpserted_thenMappingCanBeReused(UniAsserter asserter) {
-        EodhdSymbolMapping mapping = new EodhdSymbolMapping(
-                "AAPL",
-                "AAPL.US",
-                "US",
-                "USD",
-                "fingerprint",
-                EodhdResolutionSource.TRANSACTION_METADATA,
-                FIRST_FETCH);
+        EodhdSymbolMapping mapping = mapping("AAPL", EodhdResolutionSource.TRANSACTION_METADATA);
 
         asserter.execute(() -> store.replaceExchanges(
                 List.of(exchange("US", "US Exchanges", "XNAS,XNYS", "USA", "USD", FIRST_FETCH)),
@@ -83,6 +76,31 @@ class EodhdReferenceDataStoreIT {
         asserter.assertThat(
                 () -> store.findSymbolMapping(" aapl "),
                 found -> assertEquals(mapping, found.orElseThrow()));
+    }
+
+    @Test
+    @RunOnVertxContext
+    @DataSet(cleanBefore = true)
+    void givenManualAndResolvedMappings_whenInvalidated_thenOnlyResolvedOnesAreDropped(UniAsserter asserter) {
+        asserter.execute(() -> store.replaceExchanges(
+                List.of(exchange("US", "US Exchanges", "XNAS,XNYS", "USA", "USD", FIRST_FETCH)),
+                FIRST_FETCH));
+        asserter.execute(() -> store.upsertSymbolMapping(
+                mapping("AAPL", EodhdResolutionSource.UNIQUE_SEARCH)));
+        asserter.execute(() -> store.upsertSymbolMapping(
+                mapping("DELISTED", EodhdResolutionSource.MANUAL)));
+
+        asserter.execute(() -> store.deleteResolvedSymbolMapping("AAPL"));
+        asserter.execute(() -> store.deleteResolvedSymbolMapping("DELISTED"));
+
+        asserter.assertThat(() -> store.findSymbolMapping("AAPL"), found -> assertTrue(found.isEmpty()));
+        asserter.assertThat(
+                () -> store.findSymbolMapping("DELISTED"),
+                found -> assertEquals(EodhdResolutionSource.MANUAL, found.orElseThrow().resolutionSource()));
+    }
+
+    private EodhdSymbolMapping mapping(String symbol, EodhdResolutionSource source) {
+        return new EodhdSymbolMapping(symbol, symbol + ".US", "US", "USD", source, FIRST_FETCH);
     }
 
     private EodhdExchange exchange(

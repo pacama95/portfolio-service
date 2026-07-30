@@ -41,18 +41,49 @@ class EodhdReferenceDataStoreAdapter implements EodhdReferenceDataStore {
         if (fetchedAt == null) {
             return Uni.createFrom().failure(new IllegalArgumentException("fetchedAt must not be null"));
         }
-        return Panache.getSession().flatMap(session -> {
-            Uni<Void> writes = session.createQuery(
-                            "update EodhdExchangeEntity e set e.active = false, e.updatedAt = :updatedAt")
-                    .setParameter("updatedAt", fetchedAt)
-                    .executeUpdate()
-                    .replaceWithVoid();
-            for (EodhdExchange exchange : exchanges) {
-                EodhdExchangeEntity entity = toEntity(exchange, fetchedAt);
-                writes = writes.chain(() -> session.merge(entity).replaceWithVoid());
+        StringBuilder sql = new StringBuilder(
+                "insert into eodhd_exchanges "
+                        + "(code, name, operating_mic, country, currency, country_iso2, country_iso3, "
+                        + "active, fetched_at, updated_at) values ");
+        for (int i = 0; i < exchanges.size(); i++) {
+            if (i > 0) {
+                sql.append(", ");
             }
-            return writes;
-        });
+            sql.append("(:code").append(i).append(", :name").append(i).append(", :mic").append(i)
+                    .append(", :country").append(i).append(", :currency").append(i)
+                    .append(", :iso2").append(i).append(", :iso3").append(i)
+                    .append(", true, :fetchedAt, :fetchedAt)");
+        }
+        sql.append(" on conflict (code) do update set "
+                + "name = excluded.name, "
+                + "operating_mic = excluded.operating_mic, "
+                + "country = excluded.country, "
+                + "currency = excluded.currency, "
+                + "country_iso2 = excluded.country_iso2, "
+                + "country_iso3 = excluded.country_iso3, "
+                + "active = true, "
+                + "fetched_at = excluded.fetched_at, "
+                + "updated_at = excluded.updated_at");
+
+        return Panache.getSession().flatMap(session -> session.createQuery(
+                        "update EodhdExchangeEntity e set e.active = false, e.updatedAt = :updatedAt")
+                .setParameter("updatedAt", fetchedAt)
+                .executeUpdate()
+                .chain(() -> {
+                    var query = session.createNativeQuery(sql.toString());
+                    for (int i = 0; i < exchanges.size(); i++) {
+                        EodhdExchange exchange = exchanges.get(i);
+                        query.setParameter("code" + i, normalizeSymbol(exchange.code()));
+                        query.setParameter("name" + i, exchange.name());
+                        query.setParameter("mic" + i, exchange.operatingMic());
+                        query.setParameter("country" + i, exchange.country());
+                        query.setParameter("currency" + i, exchange.currency());
+                        query.setParameter("iso2" + i, exchange.countryIso2());
+                        query.setParameter("iso3" + i, exchange.countryIso3());
+                    }
+                    return query.setParameter("fetchedAt", fetchedAt).executeUpdate();
+                }))
+                .replaceWithVoid();
     }
 
     @Override
@@ -96,21 +127,6 @@ class EodhdReferenceDataStoreAdapter implements EodhdReferenceDataStore {
                 .setParameter("manual", EodhdResolutionSource.MANUAL)
                 .executeUpdate())
                 .replaceWithVoid();
-    }
-
-    private EodhdExchangeEntity toEntity(EodhdExchange exchange, OffsetDateTime fetchedAt) {
-        EodhdExchangeEntity entity = new EodhdExchangeEntity();
-        entity.code = exchange.code().trim().toUpperCase(Locale.ROOT);
-        entity.name = exchange.name();
-        entity.operatingMic = exchange.operatingMic();
-        entity.country = exchange.country();
-        entity.currency = exchange.currency();
-        entity.countryIso2 = exchange.countryIso2();
-        entity.countryIso3 = exchange.countryIso3();
-        entity.active = true;
-        entity.fetchedAt = fetchedAt;
-        entity.updatedAt = fetchedAt;
-        return entity;
     }
 
     private EodhdExchange toDomain(EodhdExchangeEntity entity) {
