@@ -63,6 +63,8 @@ class PositionApiIT {
                           "price": 100,
                           "currency": "USD",
                           "transactionDate": "2024-03-01",
+                          "exchange": "NASDAQ",
+                          "country": "US",
                           "companyName": "Alphabet"
                         }
                         """)
@@ -102,7 +104,9 @@ class PositionApiIT {
                           "quantity": 1,
                           "price": 200,
                           "currency": "USD",
-                          "transactionDate": "2024-04-01"
+                          "transactionDate": "2024-04-01",
+                          "exchange": "NASDAQ",
+                          "country": "US"
                         }
                         """)
                 .when()

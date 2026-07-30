@@ -56,7 +56,9 @@ class TransactionApiIT {
                           "quantity": 10,
                           "price": 100,
                           "currency": "USD",
-                          "transactionDate": "2024-01-01"
+                          "transactionDate": "2024-01-01",
+                          "exchange": "NASDAQ",
+                          "country": "US"
                         }
                         """)
                 .when()
@@ -133,7 +135,9 @@ class TransactionApiIT {
                           "quantity": 5,
                           "price": 200,
                           "currency": "USD",
-                          "transactionDate": "2024-02-01"
+                          "transactionDate": "2024-02-01",
+                          "exchange": "NASDAQ",
+                          "country": "US"
                         }
                         """)
                 .when()
@@ -360,7 +364,9 @@ class TransactionApiIT {
                   "quantity": 8,
                   "price": 120,
                   "currency": "USD",
-                  "transactionDate": "2024-01-10"
+                  "transactionDate": "2024-01-10",
+                  "exchange": "NASDAQ",
+                  "country": "US"
                 }
                 """;
 

@@ -58,6 +58,7 @@ class TransactionCreatedEventIT {
                           "price": 100,
                           "currency": "USD",
                           "transactionDate": "2024-01-01",
+                          "country": "US",
                           "exchange": "NASDAQ"
                         }
                         """)
@@ -82,7 +83,7 @@ class TransactionCreatedEventIT {
     }
 
     @Test
-    void givenNullExchange_whenPosted_thenExchangeFieldOmitted() {
+    void givenNoCompanyName_whenPosted_thenCompanyNameFieldOmitted() {
         given()
                 .header("X-User-Id", USER_A)
                 .contentType(ContentType.JSON)
@@ -94,7 +95,9 @@ class TransactionCreatedEventIT {
                           "quantity": 5,
                           "price": 200,
                           "currency": "USD",
-                          "transactionDate": "2024-01-01"
+                          "transactionDate": "2024-01-01",
+                          "exchange": "NASDAQ",
+                          "country": "US"
                         }
                         """)
                 .when()
@@ -104,7 +107,7 @@ class TransactionCreatedEventIT {
 
         List<StreamMessage<String, String, String>> entries = streams.xrange(STREAM, StreamRange.of("-", "+"));
         assertEquals(1, entries.size());
-        assertFalse(envelopeOf(entries.getFirst()).get("payload").has("exchange"));
+        assertFalse(envelopeOf(entries.getFirst()).get("payload").has("companyName"));
     }
 
     /**
@@ -134,7 +137,9 @@ class TransactionCreatedEventIT {
                           "quantity": 5,
                           "price": 200,
                           "currency": "USD",
-                          "transactionDate": "2024-01-01"
+                          "transactionDate": "2024-01-01",
+                          "exchange": "NASDAQ",
+                          "country": "US"
                         }
                         """)
                 .when()
