@@ -351,6 +351,144 @@ class GetPortfolioValuationHistoryServiceTest {
         assertTrue(conflict.message().contains("AAPL"));
     }
 
+    /**
+     * The whole construction in one pass: two tickers in two currencies over ten days, with a
+     * weekend gap bridged by the price floor, a foreign price going stale mid-range (days marked
+     * incomplete while cost keeps accumulating), and the foreign position exiting before the end.
+     */
+    @Test
+    void givenMultiCurrencyPortfolioWithGapsAndExit_whenExecute_thenBuildsExpectedDailySeries() {
+        LocalDate from = LocalDate.of(2024, 1, 8);
+        LocalDate to = LocalDate.of(2024, 1, 17);
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
+                tx("ACME", TransactionType.BUY, "20", "100", from),
+                tx("BRIT", TransactionType.BUY, "10", "2.5", from, Currency.GBP),
+                tx("BRIT", TransactionType.SELL, "10", "3", LocalDate.of(2024, 1, 17), Currency.GBP))));
+        when(marketDataPort.getPriceHistory("ACME", from.minusDays(5), to))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        price("ACME", LocalDate.of(2024, 1, 8), "110"),
+                        price("ACME", LocalDate.of(2024, 1, 9), "112"),
+                        price("ACME", LocalDate.of(2024, 1, 10), "114"),
+                        price("ACME", LocalDate.of(2024, 1, 11), "116"),
+                        price("ACME", LocalDate.of(2024, 1, 12), "120"),
+                        price("ACME", LocalDate.of(2024, 1, 15), "122"),
+                        price("ACME", LocalDate.of(2024, 1, 16), "124"),
+                        price("ACME", LocalDate.of(2024, 1, 17), "126"))));
+        // BRIT quotes stop on the 9th: the floor carries through the 14th (five-day staleness),
+        // then the 15th and 16th have no usable price.
+        when(marketDataPort.getPriceHistory("BRIT", from.minusDays(5), to))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        price("BRIT", LocalDate.of(2024, 1, 8), "2.5"),
+                        price("BRIT", LocalDate.of(2024, 1, 9), "2.6"))));
+        when(marketDataPort.getFxHistory(Currency.GBP, Currency.USD, from.minusDays(7), to))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        fx(LocalDate.of(2024, 1, 8), "1.25"),
+                        fx(LocalDate.of(2024, 1, 9), "1.25"),
+                        fx(LocalDate.of(2024, 1, 10), "1.25"),
+                        fx(LocalDate.of(2024, 1, 11), "1.25"),
+                        fx(LocalDate.of(2024, 1, 12), "1.25"),
+                        fx(LocalDate.of(2024, 1, 15), "1.25"),
+                        fx(LocalDate.of(2024, 1, 16), "1.25"),
+                        fx(LocalDate.of(2024, 1, 17), "1.25"))));
+
+        GetPortfolioValuationHistoryUseCase.Result result = service.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(USER, from, to))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        List<DailyValuation> valuations =
+                assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result)
+                        .valuations();
+        assertEquals(10, valuations.size());
+        assertDay(valuations.get(0), LocalDate.of(2024, 1, 8), "2231.25", true);
+        assertDay(valuations.get(1), LocalDate.of(2024, 1, 9), "2272.5", true);
+        assertDay(valuations.get(2), LocalDate.of(2024, 1, 10), "2312.5", true);
+        assertDay(valuations.get(3), LocalDate.of(2024, 1, 11), "2352.5", true);
+        assertDay(valuations.get(4), LocalDate.of(2024, 1, 12), "2432.5", true);
+        // Weekend: both series floor to Friday's values.
+        assertDay(valuations.get(5), LocalDate.of(2024, 1, 13), "2432.5", true);
+        assertDay(valuations.get(6), LocalDate.of(2024, 1, 14), "2432.5", true);
+        // BRIT price stale: its market value drops out and the day is incomplete...
+        assertDay(valuations.get(7), LocalDate.of(2024, 1, 15), "2440", false);
+        assertDay(valuations.get(8), LocalDate.of(2024, 1, 16), "2480", false);
+        // ...but its cost basis does not depend on the price and stays in.
+        assertEquals(0, new BigDecimal("2031.25").compareTo(valuations.get(7).totalCost()));
+        // Exit day: BRIT's zero-share snapshot no longer participates, so the day is complete.
+        assertDay(valuations.get(9), LocalDate.of(2024, 1, 17), "2520", true);
+    }
+
+    @Test
+    void givenOnlyPositionSoldToZeroMidRange_whenExecute_thenDaysAfterExitAreOmitted() {
+        LocalDate from = LocalDate.of(2024, 1, 8);
+        LocalDate to = LocalDate.of(2024, 1, 12);
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
+                tx("ACME", TransactionType.BUY, "10", "100", from),
+                tx("ACME", TransactionType.SELL, "10", "110", LocalDate.of(2024, 1, 10)))));
+        when(marketDataPort.getPriceHistory("ACME", from.minusDays(5), to))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        price("ACME", LocalDate.of(2024, 1, 8), "100"),
+                        price("ACME", LocalDate.of(2024, 1, 9), "101"),
+                        price("ACME", LocalDate.of(2024, 1, 10), "102"))));
+
+        GetPortfolioValuationHistoryUseCase.Result result = service.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(USER, from, to))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        List<DailyValuation> valuations =
+                assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result)
+                        .valuations();
+        // The exit day's end-of-day snapshot already holds zero shares, so the series ends the
+        // day before, and no empty rows pad the rest of the requested range.
+        assertEquals(2, valuations.size());
+        assertDay(valuations.get(0), LocalDate.of(2024, 1, 8), "1000", true);
+        assertDay(valuations.get(1), LocalDate.of(2024, 1, 9), "1010", true);
+    }
+
+    @Test
+    void givenSplitMidRange_whenExecute_thenPostSplitSharesDriveMarketValue() {
+        LocalDate from = LocalDate.of(2024, 1, 8);
+        LocalDate to = LocalDate.of(2024, 1, 11);
+        when(transactionRepository.findAll(USER)).thenReturn(Uni.createFrom().item(List.of(
+                tx("ACME", TransactionType.BUY, "20", "100", from),
+                tx("ACME", TransactionType.SPLIT, "4", "0", LocalDate.of(2024, 1, 10)))));
+        when(marketDataPort.getPriceHistory("ACME", from.minusDays(5), to))
+                .thenReturn(Uni.createFrom().item(List.of(
+                        price("ACME", LocalDate.of(2024, 1, 8), "120"),
+                        price("ACME", LocalDate.of(2024, 1, 9), "120"),
+                        price("ACME", LocalDate.of(2024, 1, 10), "30"),
+                        price("ACME", LocalDate.of(2024, 1, 11), "31"))));
+
+        GetPortfolioValuationHistoryUseCase.Result result = service.execute(
+                new GetPortfolioValuationHistoryUseCase.Query(USER, from, to))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        List<DailyValuation> valuations =
+                assertInstanceOf(GetPortfolioValuationHistoryUseCase.Result.Success.class, result)
+                        .valuations();
+        // 20 x 120 before the split, 80 x 30 on split day: market value is continuous.
+        assertEquals(4, valuations.size());
+        assertDay(valuations.get(0), LocalDate.of(2024, 1, 8), "2400", true);
+        assertDay(valuations.get(1), LocalDate.of(2024, 1, 9), "2400", true);
+        assertDay(valuations.get(2), LocalDate.of(2024, 1, 10), "2400", true);
+        assertDay(valuations.get(3), LocalDate.of(2024, 1, 11), "2480", true);
+    }
+
+    private static void assertDay(DailyValuation valuation, LocalDate date, String marketValue, boolean complete) {
+        assertEquals(date, valuation.date());
+        assertEquals(0, new BigDecimal(marketValue).compareTo(valuation.totalMarketValue()),
+                () -> date + ": expected " + marketValue + " but was " + valuation.totalMarketValue());
+        assertEquals(complete, valuation.complete(), () -> date + ": complete flag");
+    }
+
+    private static FxRateEntry fx(LocalDate date, String rate) {
+        return new FxRateEntry(Currency.GBP, Currency.USD, date, new BigDecimal(rate), OffsetDateTime.now());
+    }
+
     private static Transaction tx(String ticker, TransactionType type, String qty, String price, LocalDate date) {
         return tx(ticker, type, qty, price, date, Currency.USD);
     }

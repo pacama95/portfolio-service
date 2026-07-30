@@ -240,6 +240,82 @@ class GetPerformanceInputsServiceTest {
         verify(marketDataPort).getFxHistory(Currency.EUR, Currency.USD, flowDate.minusDays(7), TO);
     }
 
+    @Test
+    void givenFlowsInTwoForeignCurrencies_whenExecute_thenEachConvertsAtItsOwnFlowDateRate() {
+        LocalDate eurFlowDate = FROM.plusDays(2);
+        LocalDate usdFlowDate = FROM.plusDays(5);
+        LocalDate gbpFlowDate = FROM.plusDays(10);
+        List<CapitalFlowEntry> flows = List.of(
+                flowOf("ASML", eurFlowDate, CapitalFlowKind.BUY, Currency.EUR, "-1000"),
+                flowOf("AAPL", usdFlowDate, CapitalFlowKind.DIVIDEND, Currency.USD, "50"),
+                flowOf("BARC", gbpFlowDate, CapitalFlowKind.SELL, Currency.GBP, "500"));
+        when(valuationHistoryUseCase.execute(any(GetPortfolioValuationHistoryUseCase.Query.class)))
+                .thenReturn(Uni.createFrom().item(new GetPortfolioValuationHistoryUseCase.Result.Success(
+                        List.of(valuation(FROM, true)))));
+        when(capitalFlowsUseCase.execute(any(GetCapitalFlowsUseCase.Query.class)))
+                .thenReturn(Uni.createFrom().item(new GetCapitalFlowsUseCase.Result.Success(flows)));
+        when(marketDataPort.getFxHistory(Currency.EUR, Currency.USD, eurFlowDate.minusDays(7), TO))
+                .thenReturn(Uni.createFrom().item(List.of(new FxRateEntry(
+                        Currency.EUR, Currency.USD, eurFlowDate, new BigDecimal("1.10"), OffsetDateTime.now()))));
+        when(marketDataPort.getFxHistory(Currency.GBP, Currency.USD, gbpFlowDate.minusDays(7), TO))
+                .thenReturn(Uni.createFrom().item(List.of(new FxRateEntry(
+                        Currency.GBP, Currency.USD, gbpFlowDate, new BigDecimal("1.27"), OffsetDateTime.now()))));
+
+        GetPerformanceInputsUseCase.Result result = service.execute(
+                new GetPerformanceInputsUseCase.Query(USER, FROM, TO))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        List<CapitalFlowEntry> converted = assertInstanceOf(
+                GetPerformanceInputsUseCase.Result.Success.class, result).inputs().capitalFlows();
+        assertEquals(3, converted.size());
+        assertEquals(Currency.USD, converted.get(0).currency());
+        assertEquals(0, new BigDecimal("-1100.000000").compareTo(converted.get(0).amount()));
+        // Base-currency flows pass through untouched.
+        assertEquals(0, new BigDecimal("50").compareTo(converted.get(1).amount()));
+        assertEquals(Currency.USD, converted.get(2).currency());
+        assertEquals(0, new BigDecimal("635.000000").compareTo(converted.get(2).amount()));
+        // Each currency's FX window starts at its own earliest flow, not the query start.
+        verify(marketDataPort).getFxHistory(Currency.EUR, Currency.USD, eurFlowDate.minusDays(7), TO);
+        verify(marketDataPort).getFxHistory(Currency.GBP, Currency.USD, gbpFlowDate.minusDays(7), TO);
+    }
+
+    @Test
+    void givenFxOlderThanStaleness_whenExecute_thenFlowFallsBackUnconverted() {
+        LocalDate flowDate = FROM.plusDays(20);
+        List<CapitalFlowEntry> flows = List.of(
+                flowOf("BARC", flowDate, CapitalFlowKind.SELL, Currency.GBP, "500"));
+        when(valuationHistoryUseCase.execute(any(GetPortfolioValuationHistoryUseCase.Query.class)))
+                .thenReturn(Uni.createFrom().item(new GetPortfolioValuationHistoryUseCase.Result.Success(
+                        List.of(valuation(FROM, true)))));
+        when(capitalFlowsUseCase.execute(any(GetCapitalFlowsUseCase.Query.class)))
+                .thenReturn(Uni.createFrom().item(new GetCapitalFlowsUseCase.Result.Success(flows)));
+        // The only known rate is ten days before the flow -- beyond the seven-day staleness.
+        when(marketDataPort.getFxHistory(Currency.GBP, Currency.USD, flowDate.minusDays(7), TO))
+                .thenReturn(Uni.createFrom().item(List.of(new FxRateEntry(
+                        Currency.GBP, Currency.USD, flowDate.minusDays(10), new BigDecimal("1.27"),
+                        OffsetDateTime.now()))));
+
+        GetPerformanceInputsUseCase.Result result = service.execute(
+                new GetPerformanceInputsUseCase.Query(USER, FROM, TO))
+                .subscribe().withSubscriber(UniAssertSubscriber.create())
+                .awaitItem()
+                .getItem();
+
+        CapitalFlowEntry converted = assertInstanceOf(
+                GetPerformanceInputsUseCase.Result.Success.class, result).inputs().capitalFlows().getFirst();
+        // Rate falls back to 1 rather than using a stale rate or dropping the flow.
+        assertEquals(Currency.USD, converted.currency());
+        assertEquals(0, new BigDecimal("500.000000").compareTo(converted.amount()));
+    }
+
+    private static CapitalFlowEntry flowOf(
+            String ticker, LocalDate date, CapitalFlowKind kind, Currency currency, String amount) {
+        return new CapitalFlowEntry(
+                UUID.randomUUID(), ticker, date, kind, currency, new BigDecimal(amount), BigDecimal.ZERO);
+    }
+
     private static DailyValuation valuation(LocalDate date, boolean complete) {
         return new DailyValuation(date, Currency.USD, BigDecimal.TEN, BigDecimal.ONE, complete);
     }
