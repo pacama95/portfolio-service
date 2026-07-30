@@ -8,15 +8,3 @@ databaseChangeLog:
   - include:
       file: db.changelog-003-extend-ingestion-run-status.yaml
       relativeToChangelogFile: true
-  - include:
-      file: db.changelog-004-drop-exchanges-table.yaml
-      relativeToChangelogFile: true
-  - include:
-      file: db.changelog-005-add-spot-quote-provider.yaml
-      relativeToChangelogFile: true
-  - include:
-      file: db.changelog-006-add-eodhd-reference-data.yaml
-      relativeToChangelogFile: true
-  - include:
-      file: db.changelog-007-clear-eodhd-coverage.yaml
-      relativeToChangelogFile: true
