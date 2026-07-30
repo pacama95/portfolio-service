@@ -106,9 +106,10 @@ TWELVE_DATA_API_KEY=...
 EODHD_API_KEY=...
 ```
 
-The default makes TwelveData primary and EODHD the fallback. Reverse the list to make EODHD
-primary, or name one provider to disable fallback. Provider IDs must be unique and supported, and
-the service validates the API key for every listed provider during startup.
+The first entry is primary and the rest are fallbacks in order; naming one provider disables
+fallback. Provider IDs must be unique and supported, and the service validates the API key for
+every listed provider during startup. Tests pin their own chain, so changing the deployed value
+does not affect them.
 
 Fallback happens only for typed provider failures: rate limits, sanitized upstream HTTP errors,
 transport outages, missing required fields, unsupported currencies, or unresolved symbols. An
@@ -154,34 +155,57 @@ sequenceDiagram
 ### EODHD symbol resolution
 
 EODHD equity symbols use `<ticker>.<exchange-code>`, but callers continue to pass the canonical
-ticker. The adapter resolves it deterministically:
+ticker. The adapter resolves it in two steps:
 
-1. A configured `application.market-data.eodhd.symbol-overrides.<TICKER>` wins.
-2. A persisted mapping is reused only while its transaction-metadata fingerprint matches.
-3. Otherwise, distinct exchange/country/currency hints are loaded from transactions and the EODHD
-   Search API is restricted to exact ticker matches.
-4. Ambiguous or conflicting listings fail explicitly. The adapter never picks the first result or
-   treats an input dot (for example `BRK.B`) as an EODHD exchange suffix.
+1. **A persisted mapping in `eodhd_symbol_mappings` wins and is used as-is.** No catalog load, no
+   transaction query, no search. Writing a transaction for that ticker deletes the mapping, so a
+   stale one cannot survive the metadata change that invalidates it.
+2. **On a miss, discovery runs:** load the exchange catalog, read distinct exchange/country/
+   currency metadata from the ticker's transactions, and search EODHD for exact ticker matches.
+   Country and currency must match. The exchange label only narrows an ambiguous result, because
+   broker labels such as `BOLSA DE MADRID` match neither EODHD's exchange code (`MC`) nor its MIC
+   (`XMAD`). Exactly one surviving candidate is persisted; anything else fails explicitly. The
+   adapter never picks the first result or treats an input dot (`BRK.B`) as an exchange suffix.
 
 Country matching accepts ISO alpha-2, ISO alpha-3, and English country names, but canonicalizes
 them only inside the EODHD adapter. Thus transaction metadata such as `United States` matches
-EODHD's `USA`/`US` catalog values without introducing provider naming into the domain.
+EODHD's `USA`/`US` catalog values without introducing provider naming into the domain. Because
+these hints are what identify a listing, `exchange` and `country` are required on every
+transaction.
+
+To pin a symbol that discovery cannot resolve — an ambiguous ticker, or one delisted since EODHD
+Search only returns active instruments — insert the mapping yourself and mark it `MANUAL`, which
+invalidation never deletes:
+
+```sql
+INSERT INTO eodhd_symbol_mappings
+    (canonical_symbol, provider_symbol, exchange_code, raw_currency, resolution_source, resolved_at, updated_at)
+VALUES ('BARC', 'BARC.LSE', 'LSE', 'GBX', 'MANUAL', now(), now())
+ON CONFLICT (canonical_symbol) DO UPDATE SET
+    provider_symbol = excluded.provider_symbol,
+    exchange_code = excluded.exchange_code,
+    raw_currency = excluded.raw_currency,
+    resolution_source = 'MANUAL',
+    updated_at = now();
+```
+
+The referenced `exchange_code` must already exist in `eodhd_exchanges`.
 
 `eodhd_exchanges` persists the `Code` values returned by EODHD's Exchanges List API.
 `eodhd_symbol_mappings` persists canonical-to-qualified mappings. The catalog is loaded lazily,
 refreshed after 24 hours, coalesced across concurrent callers, and retains the last good snapshot
-when refresh fails. An empty catalog response never erases persisted reference data. FX uses
-`BASEQUOTE.FOREX` entirely inside the EODHD adapter and does not depend on the exchange catalog.
+when refresh fails. An empty catalog response never erases persisted reference data. Because only
+discovery consults the catalog, a catalog outage cannot block pricing for symbols that are already
+mapped. FX uses `BASEQUOTE.FOREX` entirely inside the EODHD adapter and never touches the catalog.
 
 Useful configuration:
 
 | Property | Default | Purpose |
 |---|---:|---|
-| `application.market-data.providers` | `twelvedata,eodhd` | Ordered provider chain |
+| `application.market-data.providers` | `eodhd` | Ordered provider chain |
 | `application.market-data.eodhd.exchange-catalog-ttl` | `PT24H` | Exchange reference-data freshness |
 | `application.market-data.eodhd.rate-limit.requests-per-minute` | `1000` | Independent EODHD minute budget |
 | `application.market-data.eodhd.rate-limit.max-wait` | `PT2M` | Maximum client-side queue time |
-| `application.market-data.eodhd.symbol-overrides.<TICKER>` | none | Explicit qualified-symbol escape hatch |
 | `application.market-data.eodhd.exchange-price-currency-overrides.LSE` | `GBX` | Correct EODHD LSE quote unit before normalization |
 
 EODHD live prices are delayed quotes; they are not exchange-real-time data. Historical `from` and

@@ -7,8 +7,9 @@
 ## 1. Purpose
 
 Add EODHD as a second implementation of `MarketDataProviderPort` while preserving the
-application-facing market-data contracts. TwelveData remains the primary provider and EODHD is
-the default fallback.
+application-facing market-data contracts. Which providers run, and in which order, is deployment
+configuration; the shipped default is EODHD alone, and TwelveData remains available as a primary
+or fallback entry in the chain.
 
 The integration has four non-negotiable properties:
 
@@ -96,9 +97,13 @@ continues to key equity data by the canonical symbol.
   transport/HTTP error translation.
 - **`EodhdProviderAdapter`** implements all four `MarketDataProviderPort` operations.
 - **`EodhdSymbolResolver`** owns canonical-symbol to qualified-EODHD-symbol resolution.
-- **`EodhdReferenceDataRepository`** persists the exchange catalog and symbol mappings.
+- **`EodhdReferenceDataStore`** persists the exchange catalog and symbol mappings.
 - **`InstrumentListingPort`** exposes provider-neutral transaction listing metadata to the
   resolver without exposing transaction persistence or EODHD types.
+- **`ProviderSymbolMappingPort`** lets a transaction write discard a provider's cached symbol
+  translation, again without naming a provider in the core.
+- **`ProviderCalls`** holds the rate-limit acquisition and HTTP-failure translation both provider
+  adapters need, so a raw transport exception cannot reach the router as a code defect.
 - **`MarketDataStorePort`** accepts provider provenance on writes.
 
 Portfolio valuation and performance use cases narrow their provider-neutral history calls to the
@@ -222,59 +227,64 @@ metadata conflict. No normalized EODHD or country identifier is returned through
 
 ```mermaid
 flowchart TD
-    Start["Resolve canonical equity symbol"] --> Override{"Configured EODHD override exists?"}
-    Override -- Yes --> OverrideCatalog["Ensure catalog using TTL and stale-fallback rules"]
-    OverrideCatalog --> OverrideUsable{"Catalog usable?"}
-    OverrideUsable -- No --> ProviderError["Fail with typed provider error"]
-    OverrideUsable -- Yes --> ValidateOverride["Validate suffix and persist override mapping"]
-    ValidateOverride --> Return["Return adapter-internal resolution"]
-    Override -- No --> Listing["Load distinct transaction listing metadata"]
-    Listing --> Conflict{"Conflicting exchange or country metadata?"}
+    Start["Resolve canonical equity symbol"] --> Cached{"Persisted mapping exists?"}
+    Cached -- Yes --> ReturnCached["Return qualified symbol and currency"]
+    Cached -- No --> Catalog["Ensure catalog using TTL and stale-fallback rules"]
+    Catalog --> Usable{"Catalog usable?"}
+    Usable -- No --> ProviderError["Fail with typed provider error"]
+    Usable -- Yes --> Listing["Load distinct transaction listing metadata"]
+    Listing --> Conflict{"Conflicting exchange, country, or currency metadata?"}
     Conflict -- Yes --> ResolutionError["Fail with typed SymbolResolution"]
-    Conflict -- No --> Cached{"Mapping fingerprint matches and exchange remains usable?"}
-    Cached -- Yes --> CachedCatalog["Ensure catalog using TTL and stale-fallback rules"]
-    CachedCatalog --> CachedUsable{"Catalog usable?"}
-    CachedUsable -- No --> ProviderError
-    CachedUsable -- Yes --> ReturnCached["Return cached qualified symbol and currency"]
-    Cached -- No --> SearchCatalog["Ensure catalog using TTL and stale-fallback rules"]
-    SearchCatalog --> SearchUsable{"Catalog usable?"}
-    SearchUsable -- No --> ProviderError
-    SearchUsable -- Yes --> Search["Search EODHD for exact canonical ticker"]
-    Search --> Metadata{"Transaction metadata available?"}
-    Metadata -- Yes --> Filter["Filter exact results by exchange, country, and major currency"]
-    Metadata -- No --> Exact["Keep exact ticker results only"]
-    Filter --> Unique{"Exactly one candidate remains?"}
-    Exact --> Unique
+    Conflict -- No --> Search["Search EODHD for exact canonical ticker"]
+    Search --> Strict["Keep exact ticker matches on an active exchange
+    whose country and currency match the metadata"]
+    Strict --> Narrow{"Does the exchange hint match some candidates?"}
+    Narrow -- Yes --> Narrowed["Keep only those"]
+    Narrow -- No --> Keep["Keep all surviving candidates"]
+    Narrowed --> Unique{"Exactly one candidate remains?"}
+    Keep --> Unique
     Unique -- No --> ResolutionError
-    Unique -- Yes --> PersistMapping["Persist qualified symbol, currency, source, and fingerprint"]
-    PersistMapping --> Return
+    Unique -- Yes --> PersistMapping["Persist qualified symbol, currency, and source"]
+    PersistMapping --> Return["Return adapter-internal resolution"]
 ```
 
 ### 6.2 Resolution rules
 
-Resolution is deterministic and follows this precedence:
+Resolution is deterministic:
 
-1. `application.market-data.eodhd.symbol-overrides.<CANONICAL>` wins. Its value must be a full
-   qualified EODHD symbol and its suffix must exist in the active or stale catalog.
-2. A persisted mapping is reused only if its transaction-metadata fingerprint still matches and
-   its exchange remains usable in the current catalog snapshot.
-3. Otherwise, load distinct provider-neutral listing metadata for the ticker from transactions.
-4. More than one distinct nonblank exchange or country identity is a conflict. Do not select the
-   first, most frequent, or newest value. A configured override is the only bypass.
+1. A persisted mapping is authoritative and is returned immediately. Nothing else runs: no catalog
+   load, no listing query, no search. A catalog outage therefore cannot block pricing for an
+   already-mapped symbol.
+2. A mapping is discarded when a transaction write for that ticker changes the listing metadata
+   behind it — see §6.4. The read path performs no staleness check of its own.
+3. On a miss, load distinct provider-neutral listing metadata for the ticker from transactions.
+4. More than one distinct nonblank exchange, country, or currency identity is a conflict. Do not
+   select the first, most frequent, or newest value.
 5. Search only exact, case-insensitive ticker-code matches; a company-name match is insufficient.
-6. When transaction metadata exists, use the raw exchange as EODHD's supported `exchange` search
-   filter where possible, then filter results using catalog-normalized exchange/MIC/country and
-   the transaction's major currency.
-7. When no transaction metadata exists, accept only one exact search result.
+6. Country and currency hints are strict: a candidate that contradicts either is discarded.
+7. The exchange hint only narrows. Broker labels such as `NASDAQ` or `BOLSA DE MADRID` match
+   neither EODHD's aggregate code (`US`, `MC`) nor its MICs, so an unmatched exchange hint must
+   never discard the last candidate country and currency already accepted. Where the hint does map
+   to exactly one catalog exchange, it is also passed as EODHD's `exchange` search filter.
 8. `isPrimary=true` may be logged as diagnostic context but must not resolve an otherwise
    ambiguous result.
-9. Persist the successful `Code.Exchange`, raw price currency, resolution source, and metadata
-   fingerprint.
+9. Persist the successful `Code.Exchange`, raw price currency, and resolution source.
 
-Search covers active instruments only. A previously persisted mapping continues to work for a
-later-delisted instrument. A new delisted instrument that cannot be found requires an explicit
-symbol override; the adapter will not download an entire exchange's delisted-symbol list during a
+Search covers active instruments only. A persisted mapping continues to work for a later-delisted
+instrument. A new delisted instrument that cannot be found needs an operator-inserted `MANUAL`
+mapping row; the adapter will not download an entire exchange's delisted-symbol list during a
 normal price request.
+
+### 6.4 Mapping lifecycle
+
+`ProviderSymbolMappingPort.invalidate(canonicalSymbol)` deletes the mapping. Create, update, and
+delete of a transaction call it for the affected ticker (both tickers on a rename), because the
+transaction's exchange/country/currency is exactly what discovery consumed. Rows with
+`resolution_source = MANUAL` are operator-managed and are never deleted by invalidation.
+
+This replaces the earlier fingerprint scheme, in which every read recomputed a hash of the
+transaction metadata to detect its own staleness, and replaces configured symbol overrides, whose
+persisted mappings silently outlived the removed configuration that created them.
 
 Input dots have no provider meaning. `BRK.B` is a canonical ticker to resolve, not an instruction
 to send exchange `B` to EODHD.
@@ -306,11 +316,13 @@ The catalog is a persistent, lazy TTL cache:
    next provider.
 
 FX calls do not require the exchange catalog and must not be blocked by an equity-reference-data
-outage.
+outage. Neither does an equity whose mapping is already persisted: only discovery consults the
+catalog, so a refresh outage affects first-time resolution only.
 
 ## 8. Persistence model
 
-Add a forward Liquibase change set and update the fresh-install schema.
+The database is created from scratch, so these tables live in the base `schema.sql` rather
+than in incremental change sets.
 
 ### 8.1 `eodhd_exchanges`
 
@@ -335,8 +347,7 @@ Add a forward Liquibase change set and update the fresh-install schema.
 | `provider_symbol VARCHAR(64) NOT NULL` | Full EODHD `Code.Exchange` value |
 | `exchange_code VARCHAR(20) NOT NULL` | Catalog code used by the mapping |
 | `raw_currency VARCHAR(10)` | EODHD price currency before normalization |
-| `metadata_fingerprint VARCHAR(64)` | Detects changed transaction metadata |
-| `resolution_source VARCHAR(32) NOT NULL` | `CONFIG_OVERRIDE`, `TRANSACTION_METADATA`, or `UNIQUE_SEARCH` |
+| `resolution_source VARCHAR(32) NOT NULL` | `MANUAL`, `TRANSACTION_METADATA`, or `UNIQUE_SEARCH` |
 | `resolved_at TIMESTAMPTZ NOT NULL` | Successful resolution time |
 | `updated_at TIMESTAMPTZ NOT NULL` | Last row update |
 
@@ -449,8 +460,8 @@ the subscription and additional-call balance.
 Production defaults and environment bindings:
 
 ```properties
-# Ordered provider chain. Both listed providers are validated at startup.
-application.market-data.providers=${MARKET_DATA_PROVIDERS:twelvedata,eodhd}
+# Ordered provider chain. Every listed provider is validated at startup.
+application.market-data.providers=${MARKET_DATA_PROVIDERS:eodhd}
 
 application.market-data.twelve-data.api-key=${TWELVE_DATA_API_KEY}
 application.market-data.eodhd.api-key=${EODHD_API_KEY}
@@ -460,16 +471,18 @@ application.market-data.eodhd.exchange-catalog-ttl=PT24H
 application.market-data.eodhd.rate-limit.requests-per-minute=1000
 application.market-data.eodhd.rate-limit.max-wait=PT2M
 
-# Operator escape hatch for ambiguous, missing, or delisted discovery.
-# application.market-data.eodhd.symbol-overrides.BARC=BARC.LSE
-
 # Provider-specific quote-unit correction before CurrencyResolver.
 application.market-data.eodhd.exchange-price-currency-overrides.LSE=GBX
 ```
 
-Update `.env.example`, Docker configuration, README, test profiles, and WireMock resource
-configuration. Because the default chain contains both providers, missing either API key fails
-startup. Operators can explicitly configure a one-provider chain when needed.
+Configuration holds service settings only. Per-symbol resolution is data, not configuration: the
+operator escape hatch is a `MANUAL` row in `eodhd_symbol_mappings` (§6.4), which needs no restart
+and cannot drift from the mapping actually in use.
+
+Missing an API key for any listed provider fails startup. Unit and integration tests declare the
+chain they exercise rather than inheriting the deployed one, so the deployed chain can change
+freely. Update `.env.example`, Docker configuration, README, test profiles, and WireMock resource
+configuration alongside it.
 
 ## 14. Observability and security
 
@@ -479,7 +492,7 @@ Log at appropriate levels:
 - successful provider;
 - fallback transition and typed failure category;
 - catalog refresh outcome and stale-catalog use;
-- mapping source (`CONFIG_OVERRIDE`, `TRANSACTION_METADATA`, or `UNIQUE_SEARCH`);
+- mapping source (`MANUAL`, `TRANSACTION_METADATA`, or `UNIQUE_SEARCH`);
 - ambiguity/conflict using canonical transaction metadata.
 
 Never log:
@@ -494,7 +507,7 @@ returned to REST clients are sanitized.
 ## 15. Implementation sequence (completed)
 
 1. Add provider-neutral listing metadata model/port and its distinct-query persistence adapter.
-2. Add migration, entities, and repository operations for the exchange catalog, symbol mappings,
+2. Add schema, entities, and repository operations for the exchange catalog, symbol mappings,
    and spot provenance.
 3. Add EODHD DTOs and the typed REST client.
 4. Implement catalog refresh and symbol resolution with unit tests.
@@ -504,6 +517,8 @@ returned to REST clients are sanitized.
 8. Normalize TwelveData transport/HTTP failures into typed provider failures.
 9. Extend WireMock and integration profiles for EODHD reference and data endpoints.
 10. Update operator documentation and run the complete verification pipeline.
+11. Simplify: trust persisted mappings, invalidate them on transaction writes, share the
+    rate-limit/failure plumbing across providers, and let tests pin their own provider chain.
 
 ## 16. Test and acceptance matrix
 
@@ -526,12 +541,15 @@ returned to REST clients are sanitized.
 - exact exchange code, operating MIC, country, and currency matching;
 - `NASDAQ` transaction metadata resolves through EODHD search to `AAPL.US`;
 - `LSE` metadata resolves `BARC` to `BARC.LSE`;
+- a broker label unknown to EODHD (`BOLSA DE MADRID`) still resolves `EBRO.MC` on matching
+  country and currency, but a contradicting country still fails;
 - a unique exact search works without transaction metadata;
 - ambiguous search does not use the first or `isPrimary` result;
-- conflicting transaction metadata fails unless an override exists;
-- persisted mappings are reused and invalidated by fingerprint changes;
+- conflicting transaction metadata fails;
+- a persisted mapping short-circuits catalog, listing, and search entirely;
+- invalidation deletes resolved mappings and preserves `MANUAL` rows;
 - `BRK.B` is resolved as a canonical ticker, never parsed as an exchange suffix;
-- inactive/delisted search limitations lead to the documented override path.
+- inactive/delisted search limitations lead to the documented `MANUAL` mapping path.
 
 ### 16.3 Adapter unit tests
 
@@ -582,9 +600,13 @@ EODHD reference tables and nullable spot-provider column can remain safely unuse
 
 ## 18. Operator runbook
 
-- **Ambiguous or missing symbol:** correct conflicting transaction metadata or add a full
-  `symbol-overrides.<TICKER>` entry. Never add a global default exchange.
-- **Delisted ticker not found:** add a verified override; search covers active instruments only.
+- **Ambiguous or missing symbol:** correct conflicting transaction metadata, or insert a
+  verified `MANUAL` row in `eodhd_symbol_mappings`. Never add a global default exchange.
+- **Delisted ticker not found:** insert a verified `MANUAL` row; search covers active instruments
+  only.
+- **Wrong listing resolved:** fix the transaction's exchange/country and save it; that write
+  deletes the mapping and the next fetch re-resolves. Delete the row by hand only for a `MANUAL`
+  mapping, which invalidation deliberately leaves alone.
 - **Unsupported currency:** confirm search/catalog data and add legitimate domain currency support
   or a quote-unit override. Never map an unknown currency to USD.
 - **Catalog refresh failure:** stale data is used automatically when present. If no snapshot
@@ -609,7 +631,7 @@ EODHD reference tables and nullable spot-provider column can remain safely unuse
 The change is complete only when:
 
 - all four EODHD port operations are implemented and provider-specific details remain internal;
-- the default TwelveData-to-EODHD fallback works end to end;
+- the configured provider chain, including TwelveData-to-EODHD fallback, works end to end;
 - symbol/catalog data and actual provider provenance are persisted;
 - canonical inputs and domain outputs contain no EODHD-qualified symbols;
 - documented and defensive error cases are covered;
