@@ -1,19 +1,39 @@
-package com.portfolio.adapters.outgoing.marketdata.eodhd;
+package com.portfolio.adapters.outgoing.marketdata.adapter;
 
+import com.portfolio.adapters.common.ReactiveRateLimiter;
 import com.portfolio.core.ports.outgoing.MarketDataProviderError;
+import io.smallrye.mutiny.Uni;
 import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.WebApplicationException;
 
 import java.time.Duration;
+import java.util.function.Supplier;
 
-final class EodhdFailureMapper {
+/**
+ * Shared plumbing for outgoing market-data calls: take a rate-limit slot, then translate whatever
+ * the transport throws into a typed {@link MarketDataProviderError} so the router can decide
+ * whether to fall back. Every provider needs both, and a provider that leaked a raw transport
+ * exception would be treated as a code defect and stop the chain instead of failing over.
+ */
+public final class ProviderCalls {
 
     private static final Duration DEFAULT_RETRY_AFTER = Duration.ofMinutes(1);
 
-    private EodhdFailureMapper() {
+    private ProviderCalls() {
     }
 
-    static Throwable translate(Throwable failure, String symbol) {
+    public static <T> Uni<T> throttled(
+            ReactiveRateLimiter rateLimiter,
+            String symbol,
+            Supplier<Uni<T>> call) {
+        return rateLimiter.acquire()
+                .onFailure(ReactiveRateLimiter.RateLimitExceededException.class)
+                .transform(failure -> new MarketDataProviderError.RateLimited(symbol, failure.retryAfter()))
+                .chain(call::get)
+                .onFailure().transform(failure -> translate(failure, symbol));
+    }
+
+    public static Throwable translate(Throwable failure, String symbol) {
         if (failure instanceof MarketDataProviderError.ProviderException) {
             return failure;
         }

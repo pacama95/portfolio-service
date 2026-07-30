@@ -3,6 +3,7 @@ package com.portfolio.adapters.outgoing.marketdata.eodhd;
 import com.portfolio.adapters.common.ReactiveRateLimiter;
 import com.portfolio.adapters.outgoing.marketdata.adapter.MarketDataProviderAdapter;
 import com.portfolio.adapters.outgoing.marketdata.adapter.MarketDataRateLimiters;
+import com.portfolio.adapters.outgoing.marketdata.adapter.ProviderCalls;
 import com.portfolio.core.application.service.CurrencyResolver;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.FxRateEntry;
@@ -222,13 +223,7 @@ public class EodhdProviderAdapter implements MarketDataProviderPort {
     }
 
     private <T> Uni<T> throttled(String canonicalSymbol, Supplier<Uni<T>> call) {
-        return rateLimiter.acquire()
-                .onFailure(ReactiveRateLimiter.RateLimitExceededException.class)
-                .transform(failure -> new MarketDataProviderError.RateLimited(
-                        canonicalSymbol,
-                        ((ReactiveRateLimiter.RateLimitExceededException) failure).retryAfter()))
-                .chain(() -> call.get())
-                .onFailure().transform(failure -> EodhdFailureMapper.translate(failure, canonicalSymbol));
+        return ProviderCalls.throttled(rateLimiter, canonicalSymbol, call);
     }
 
     private String fxSymbol(Currency base, Currency quote) {

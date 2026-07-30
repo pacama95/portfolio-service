@@ -2,6 +2,7 @@ package com.portfolio.adapters.outgoing.marketdata.eodhd;
 
 import com.portfolio.adapters.common.ReactiveRateLimiter;
 import com.portfolio.adapters.outgoing.marketdata.adapter.MarketDataRateLimiters;
+import com.portfolio.adapters.outgoing.marketdata.adapter.ProviderCalls;
 import com.portfolio.core.ports.outgoing.MarketDataProviderError;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -57,13 +58,8 @@ class EodhdExchangeCatalog {
             return refreshInFlight;
         }
         OffsetDateTime fetchedAt = OffsetDateTime.now();
-        Uni<List<EodhdExchange>> refresh = rateLimiter.acquire()
-                .onFailure(ReactiveRateLimiter.RateLimitExceededException.class)
-                .transform(failure -> new MarketDataProviderError.RateLimited(
-                        CATALOG_SYMBOL,
-                        ((ReactiveRateLimiter.RateLimitExceededException) failure).retryAfter()))
-                .chain(() -> client.exchanges(apiKey, "json"))
-                .onFailure().transform(failure -> EodhdFailureMapper.translate(failure, CATALOG_SYMBOL))
+        Uni<List<EodhdExchange>> refresh = ProviderCalls.throttled(
+                        rateLimiter, CATALOG_SYMBOL, () -> client.exchanges(apiKey, "json"))
                 .map(response -> toSnapshot(response, fetchedAt))
                 .chain(snapshot -> store.replaceExchanges(snapshot, fetchedAt).replaceWith(snapshot))
                 .onItem().invoke(snapshot -> LOG.infof("EODHD exchange catalog refreshed entries=%d", snapshot.size()))
@@ -73,7 +69,7 @@ class EodhdExchangeCatalog {
                                 stale.size(), failure.getClass().getSimpleName());
                         return Uni.createFrom().item(stale);
                     }
-                    Throwable translated = EodhdFailureMapper.translate(failure, CATALOG_SYMBOL);
+                    Throwable translated = ProviderCalls.translate(failure, CATALOG_SYMBOL);
                     if (translated instanceof MarketDataProviderError.ProviderException) {
                         return Uni.createFrom().failure(translated);
                     }

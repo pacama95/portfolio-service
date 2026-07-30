@@ -1,4 +1,4 @@
-package com.portfolio.adapters.outgoing.marketdata.eodhd;
+package com.portfolio.adapters.outgoing.marketdata.adapter;
 
 import com.portfolio.core.ports.outgoing.MarketDataProviderError;
 import jakarta.ws.rs.ProcessingException;
@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
-class EodhdFailureMapperTest {
+class ProviderCallsTest {
 
     @Test
     void givenHttp429_whenTranslated_thenPreservesRetryAfter() {
@@ -20,7 +20,7 @@ class EodhdFailureMapperTest {
 
         MarketDataProviderError.RateLimited result = assertInstanceOf(
                 MarketDataProviderError.RateLimited.class,
-                EodhdFailureMapper.translate(new WebApplicationException(response), "AAPL"));
+                ProviderCalls.translate(new WebApplicationException(response), "AAPL"));
 
         assertEquals(Duration.ofSeconds(12), result.retryAfter());
     }
@@ -28,7 +28,7 @@ class EodhdFailureMapperTest {
     @Test
     void givenHttpClientError_whenTranslated_thenReturnsSanitizedProviderError() {
         for (int status : new int[]{400, 401, 403, 404}) {
-            Throwable result = EodhdFailureMapper.translate(
+            Throwable result = ProviderCalls.translate(
                     new WebApplicationException(Response.status(status).build()), "AAPL");
 
             assertInstanceOf(MarketDataProviderError.ErrorResponse.class, result);
@@ -39,12 +39,12 @@ class EodhdFailureMapperTest {
     void givenHttpExceptionWithoutResponse_whenTranslated_thenLeavesFailureUntouched() {
         WebApplicationException failure = org.mockito.Mockito.mock(WebApplicationException.class);
 
-        assertSame(failure, EodhdFailureMapper.translate(failure, "AAPL"));
+        assertSame(failure, ProviderCalls.translate(failure, "AAPL"));
     }
 
     @Test
     void givenHttpServerError_whenTranslated_thenReturnsUnavailable() {
-        Throwable result = EodhdFailureMapper.translate(
+        Throwable result = ProviderCalls.translate(
                 new WebApplicationException(Response.status(503).build()), "AAPL");
 
         assertInstanceOf(MarketDataProviderError.ProviderUnavailable.class, result);
@@ -54,7 +54,7 @@ class EodhdFailureMapperTest {
     void givenUnhandledHttpStatus_whenTranslated_thenLeavesFailureUntouched() {
         WebApplicationException failure = new WebApplicationException(Response.status(418).build());
 
-        assertSame(failure, EodhdFailureMapper.translate(failure, "AAPL"));
+        assertSame(failure, ProviderCalls.translate(failure, "AAPL"));
     }
 
     @Test
@@ -66,7 +66,7 @@ class EodhdFailureMapperTest {
             }
             MarketDataProviderError.RateLimited result = assertInstanceOf(
                     MarketDataProviderError.RateLimited.class,
-                    EodhdFailureMapper.translate(new WebApplicationException(response.build()), "AAPL"));
+                    ProviderCalls.translate(new WebApplicationException(response.build()), "AAPL"));
             assertEquals(Duration.ofMinutes(1), result.retryAfter());
         }
     }
@@ -75,12 +75,12 @@ class EodhdFailureMapperTest {
     void givenAlreadyTypedFailure_whenTranslated_thenReturnsSameInstance() {
         MarketDataProviderError.MissingData failure = new MarketDataProviderError.MissingData("AAPL", "close");
 
-        assertSame(failure, EodhdFailureMapper.translate(failure, "AAPL"));
+        assertSame(failure, ProviderCalls.translate(failure, "AAPL"));
     }
 
     @Test
     void givenTransportFailure_whenTranslated_thenReturnsUnavailable() {
-        Throwable result = EodhdFailureMapper.translate(new ProcessingException("timeout"), "AAPL");
+        Throwable result = ProviderCalls.translate(new ProcessingException("timeout"), "AAPL");
 
         assertInstanceOf(MarketDataProviderError.ProviderUnavailable.class, result);
     }
@@ -89,6 +89,6 @@ class EodhdFailureMapperTest {
     void givenUnexpectedFailure_whenTranslated_thenLeavesItUntouched() {
         IllegalStateException failure = new IllegalStateException("bug");
 
-        assertSame(failure, EodhdFailureMapper.translate(failure, "AAPL"));
+        assertSame(failure, ProviderCalls.translate(failure, "AAPL"));
     }
 }

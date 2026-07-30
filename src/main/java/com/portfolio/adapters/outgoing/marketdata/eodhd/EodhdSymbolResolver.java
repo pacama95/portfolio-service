@@ -2,6 +2,7 @@ package com.portfolio.adapters.outgoing.marketdata.eodhd;
 
 import com.portfolio.adapters.common.ReactiveRateLimiter;
 import com.portfolio.adapters.outgoing.marketdata.adapter.MarketDataRateLimiters;
+import com.portfolio.adapters.outgoing.marketdata.adapter.ProviderCalls;
 import com.portfolio.core.application.service.CurrencyResolver;
 import com.portfolio.core.model.Currency;
 import com.portfolio.core.model.InstrumentListing;
@@ -91,12 +92,8 @@ class EodhdSymbolResolver {
                     ListingHints hints = listingHints(canonical, instrumentListings);
                     Map<String, ExchangeAliases> active = activeExchanges(exchanges);
                     String exchangeFilter = exchangeFilter(hints, active.values());
-                    return rateLimiter.acquire()
-                            .onFailure(ReactiveRateLimiter.RateLimitExceededException.class)
-                            .transform(failure -> new MarketDataProviderError.RateLimited(
-                                    canonical, failure.retryAfter()))
-                            .chain(() -> client.search(canonical, apiKey, "json", exchangeFilter))
-                            .onFailure().transform(failure -> EodhdFailureMapper.translate(failure, canonical))
+                    return ProviderCalls.throttled(rateLimiter, canonical,
+                                    () -> client.search(canonical, apiKey, "json", exchangeFilter))
                             .map(results -> choose(canonical, results, hints, active))
                             .flatMap(mapping -> persist(canonical, mapping));
                 }));
