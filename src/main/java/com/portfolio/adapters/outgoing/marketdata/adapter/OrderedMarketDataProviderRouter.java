@@ -29,7 +29,7 @@ import java.util.function.Function;
 
 @ApplicationScoped
 @Startup
-public class OrderedMarketDataProviderRouter implements MarketDataProviderPort, RoutedMarketDataProviderPort {
+public class OrderedMarketDataProviderRouter implements RoutedMarketDataProviderPort {
 
     private static final Logger LOG = Logger.getLogger(OrderedMarketDataProviderRouter.class);
     private static final String TWELVE_DATA = "twelvedata";
@@ -53,26 +53,6 @@ public class OrderedMarketDataProviderRouter implements MarketDataProviderPort, 
             String configuredProviders) {
         Map<String, MarketDataProviderPort> available = Map.of(TWELVE_DATA, twelveData, EODHD, eodhd);
         this.providers = parse(configuredProviders, available);
-    }
-
-    @Override
-    public Uni<BigDecimal> fetchSpotPrice(String symbol) {
-        return fetchSpotPriceWithProvider(symbol).map(MarketDataProviderResult::value);
-    }
-
-    @Override
-    public Uni<BigDecimal> fetchFxRate(Currency base, Currency quote) {
-        return fetchFxRateWithProvider(base, quote).map(MarketDataProviderResult::value);
-    }
-
-    @Override
-    public Uni<List<PriceHistoryEntry>> fetchPriceHistory(String symbol, LocalDate from, LocalDate to) {
-        return fetchPriceHistoryWithProvider(symbol, from, to).map(MarketDataProviderResult::value);
-    }
-
-    @Override
-    public Uni<List<FxRateEntry>> fetchFxHistory(Currency base, Currency quote, LocalDate from, LocalDate to) {
-        return fetchFxHistoryWithProvider(base, quote, from, to).map(MarketDataProviderResult::value);
     }
 
     @Override

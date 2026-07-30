@@ -61,7 +61,7 @@ class OrderedMarketDataProviderRouterTest {
                 .thenReturn(Uni.createFrom().failure(new IllegalStateException("bug")));
         OrderedMarketDataProviderRouter router = router("twelvedata,eodhd");
 
-        router.fetchSpotPrice("AAPL")
+        router.fetchSpotPriceWithProvider("AAPL")
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitFailure()
                 .assertFailedWith(IllegalStateException.class);
@@ -93,7 +93,7 @@ class OrderedMarketDataProviderRouterTest {
         OrderedMarketDataProviderRouter router = router("twelvedata,eodhd");
 
         MarketDataProviderError.RateLimited failure = (MarketDataProviderError.RateLimited)
-                router.fetchSpotPrice("AAPL")
+                router.fetchSpotPriceWithProvider("AAPL")
                         .subscribe().withSubscriber(UniAssertSubscriber.create())
                         .awaitFailure()
                         .assertFailedWith(MarketDataProviderError.RateLimited.class)
@@ -111,7 +111,7 @@ class OrderedMarketDataProviderRouterTest {
         OrderedMarketDataProviderRouter router = router("twelvedata,eodhd");
 
         MarketDataProviderError.AllProvidersFailed failure = (MarketDataProviderError.AllProvidersFailed)
-                router.fetchSpotPrice("AAPL")
+                router.fetchSpotPriceWithProvider("AAPL")
                         .subscribe().withSubscriber(UniAssertSubscriber.create())
                         .awaitFailure()
                         .assertFailedWith(MarketDataProviderError.AllProvidersFailed.class)
@@ -144,7 +144,7 @@ class OrderedMarketDataProviderRouterTest {
         MarketDataProviderError.MissingData failure = new MarketDataProviderError.MissingData("AAPL", "close");
         when(eodhd.fetchSpotPrice("AAPL")).thenReturn(Uni.createFrom().failure(failure));
 
-        Throwable result = router("eodhd").fetchSpotPrice("AAPL")
+        Throwable result = router("eodhd").fetchSpotPriceWithProvider("AAPL")
                 .subscribe().withSubscriber(UniAssertSubscriber.create())
                 .awaitFailure().getFailure();
 
@@ -152,7 +152,7 @@ class OrderedMarketDataProviderRouterTest {
     }
 
     @Test
-    void givenPlainPortMethods_whenCalled_thenDelegateThroughProviderAwareRouting() {
+    void givenFxAndHistoryOperations_whenRouting_thenReportTheProviderThatAnswered() {
         LocalDate date = LocalDate.of(2024, 1, 1);
         when(twelveData.fetchFxRate(Currency.EUR, Currency.USD))
                 .thenReturn(Uni.createFrom().item(new BigDecimal("1.1")));
@@ -162,9 +162,12 @@ class OrderedMarketDataProviderRouterTest {
                 .thenReturn(Uni.createFrom().item(List.of()));
         OrderedMarketDataProviderRouter router = router("twelvedata");
 
-        assertEquals(new BigDecimal("1.1"), await(router.fetchFxRate(Currency.EUR, Currency.USD)));
-        assertEquals(List.of(), await(router.fetchPriceHistory("AAPL", date, date)));
-        assertEquals(List.of(), await(router.fetchFxHistory(Currency.EUR, Currency.USD, date, date)));
+        assertEquals(new BigDecimal("1.1"),
+                await(router.fetchFxRateWithProvider(Currency.EUR, Currency.USD)).value());
+        assertEquals("twelvedata",
+                await(router.fetchPriceHistoryWithProvider("AAPL", date, date)).providerId());
+        assertEquals("twelvedata",
+                await(router.fetchFxHistoryWithProvider(Currency.EUR, Currency.USD, date, date)).providerId());
     }
 
     @Test
