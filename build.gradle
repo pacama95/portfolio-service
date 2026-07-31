@@ -31,6 +31,9 @@ dependencies {
     implementation 'io.quarkus:quarkus-scheduler'
     implementation 'io.quarkus:quarkus-redis-client'
 
+    implementation "io.quarkiverse.mcp:quarkus-mcp-server-http:${quarkusMcpServerVersion}"
+    implementation "io.quarkiverse.mcp:quarkus-mcp-server-hibernate-validator:${quarkusMcpServerVersion}"
+
     implementation "org.mapstruct:mapstruct:${mapstructVersion}"
     annotationProcessor "org.mapstruct:mapstruct-processor:${mapstructVersion}"
     testAnnotationProcessor "org.mapstruct:mapstruct-processor:${mapstructVersion}"
@@ -49,6 +52,7 @@ dependencies {
     testImplementation "com.github.database-rider:rider-core:${dbRiderVersion}"
     testImplementation "com.github.database-rider:rider-junit5:${dbRiderVersion}"
     testImplementation "org.wiremock:wiremock:${wiremockVersion}"
+    testImplementation "io.quarkiverse.mcp:quarkus-mcp-server-test:${quarkusMcpServerVersion}"
 }
 
 group 'com.portfolio'

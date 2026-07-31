@@ -29,6 +29,52 @@ Identity is assumed already authenticated by the VPC edge. Ledger rows are scope
 | Daily history | `/api/daily-history/positions`, `/prices`, `/portfolio/valuation`, `/capital-flows`, `/performance-inputs` |
 | Ingestion | `/api/price-ingestion/runs`, `/runs/latest` |
 
+## MCP server
+
+The service also exposes an MCP (Model Context Protocol) server — a second incoming adapter,
+alongside REST, that lets MCP clients (Claude, agent orchestrators, IDEs) operate the same
+capabilities through 18 tools instead of raw HTTP. It shares the port with REST:
+
+```
+POST http://localhost:8087/mcp        # Streamable HTTP (JSON-RPC 2.0)
+```
+
+Identity works exactly like REST: every tool call must carry the `X-User-Id` header on the MCP
+connection (set it in the client's transport config, never as a tool argument). A missing/blank
+header fails the call with `MISSING_USER_ID` — the session itself stays healthy. Example client
+config:
+
+```json
+{
+  "mcpServers": {
+    "portfolio-service": {
+      "url": "http://localhost:8087/mcp",
+      "headers": { "X-User-Id": "demo" }
+    }
+  }
+}
+```
+
+Tools mirror REST capability-for-capability (18 tools cover all 26 REST endpoints — convenience
+variants like list-all/by-ticker/search collapse into one tool with optional arguments):
+`create_transaction`, `get_transaction`, `search_transactions`, `update_transaction`,
+`delete_transaction`, `count_transactions`, `list_positions`, `get_position`,
+`set_position_price`, `clear_position_price`, `get_portfolio_summary`,
+`get_daily_position_history`, `get_price_history`, `get_portfolio_valuation_history`,
+`get_capital_flows`, `get_performance_inputs`, `trigger_price_ingestion`,
+`get_price_ingestion_run`.
+
+Every tool and argument carries a description, and inputs are Bean Validation-checked
+(`quarkus-mcp-server-hibernate-validator`): a violation comes back as a tool error result listing
+every invalid field, never a raw protocol error. Business rejections (`NOT_FOUND`, `CONFLICT`,
+`INVALID_REQUEST`) and sanitized upstream failures (`RATE_LIMITED`, `MARKET_DATA_UNAVAILABLE`,
+`MARKET_SYMBOL_UNRESOLVED`) are tool error results with a stable code prefix — the MCP analog of
+REST's status codes and `ExceptionMapper`s.
+
+Full behavioral contract and implementation plan:
+[`docs/features/mcp-server-incoming-adapter/context.md`](docs/features/mcp-server-incoming-adapter/context.md) and
+[`plan.md`](docs/features/mcp-server-incoming-adapter/plan.md).
+
 ## Full stack (Docker Compose)
 
 From this directory, native build is the default:
@@ -101,6 +147,15 @@ traffic and empty reference tables — even while TwelveData fails. `ProviderStu
 vocabulary for these tests: whole-provider outages (`twelveDataDown`, `eodhdDown`,
 `twelveDataRateLimited`), symbol-scoped quote/series stubs for either provider, and traffic
 proofs (`verifyNoTwelveDataTraffic`, `verifyNoEodhdTraffic`).
+
+The MCP adapter has its own integration suite under `com.portfolio.integration.mcp`, using
+`quarkus-mcp-server-test` (`McpAssured`) against the real `/mcp` endpoint: `McpToolCatalogIT`
+(catalog completeness — 18 tools, every tool/argument has a description), `McpTransactionFlowIT`
+(create/search/update/delete + validation + conflict, DBRider-backed), `McpPortfolioAndHistoryIT`
+(positions/summary/history + a provider-429 → `RATE_LIMITED` scenario, WireMock-backed), and
+`McpIdentityIT` (missing-header rejection, per-user data isolation). One caveat when writing more:
+chaining multiple `toolsCall(...)` inside a single `.thenAssertResults()` batch dispatches them
+**concurrently**, not in declaration order — put each call in its own `.thenAssertResults()`.
 
 ## Market-data providers
 

@@ -16,4 +16,5 @@ gradle.beforeProject { project ->
     project.ext.testcontainersVersion = '1.21.3'
     project.ext.dbRiderVersion = '1.44.0'
     project.ext.wiremockVersion = '3.9.1'
+    project.ext.quarkusMcpServerVersion = '1.13.1'
 }
